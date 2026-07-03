@@ -62,6 +62,34 @@ export interface CompileResult {
   reason?: string;
   alreadyExists?: boolean;
   sourceCount?: number;
+  supportedConcepts?: string[];
+}
+
+/**
+ * 列出所有支持的 concept slug（用于错误返回）
+ */
+export function listSupportedConceptSlugs(): string[] {
+  return WQ_CONCEPTS.map((c) => c.slug);
+}
+
+/**
+ * 规范化 concept 输入：trim + 大小写不敏感 + 支持别名
+ * 返回匹配到的标准 slug，未匹配返回 null
+ *
+ * 例如以下输入都返回 'fitness'：
+ *   'Fitness', 'FITNESS', 'fitness', '适应度', '拟合度'
+ */
+export function normalizeConcept(input: string): string | null {
+  const raw = (input || '').trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  for (const c of WQ_CONCEPTS) {
+    if (c.slug === lower) return c.slug;
+    for (const syn of c.synonyms) {
+      if (syn === raw || syn.toLowerCase() === lower) return c.slug;
+    }
+  }
+  return null;
 }
 
 /**
@@ -187,9 +215,18 @@ export async function compileConcept(opts: {
   aiApiKey: string;
   aiModel: string;
 }): Promise<CompileResult> {
-  const { repoName, slug, aiBaseUrl, aiApiKey, aiModel } = opts;
-  const entry = WQ_CONCEPTS.find((c) => c.slug === slug);
-  if (!entry) return { ok: false, reason: `unknown concept: ${slug}` };
+  const { repoName, aiBaseUrl, aiApiKey, aiModel } = opts;
+  // 规范化 concept：支持大小写不敏感 + 中英文别名
+  const normalizedSlug = normalizeConcept(opts.slug);
+  if (!normalizedSlug) {
+    return {
+      ok: false,
+      reason: `unknown concept: ${opts.slug}`,
+      supportedConcepts: listSupportedConceptSlugs(),
+    };
+  }
+  const slug = normalizedSlug;
+  const entry = WQ_CONCEPTS.find((c) => c.slug === slug)!;
 
   const repoRow = db.select().from(repoSources).all().find((r: any) => r.name === repoName) as any;
   if (!repoRow) return { ok: false, reason: `repo not found: ${repoName}` };
