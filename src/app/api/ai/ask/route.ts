@@ -1,0 +1,397 @@
+// @ts-nocheck
+import { NextRequest, NextResponse } from 'next/server';
+import { db, initDb } from '@/lib/db/index';
+import { searchFts, repoDocuments, repoSources } from '@/lib/db/schema';
+import { or, like } from 'drizzle-orm';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const MAX_DOC_CHARS = 2000;
+const MAX_TOTAL_CHARS = 12000;
+const TOP_K = 8;
+
+function tokenize(text: string): string[] {
+  return text
+    .replace(/[？\?\.\，\,，。\.！\!、、\'\"\'""【】\[\]（）\(\)]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length >= 2);
+}
+
+function buildSearchQueries(question: string): string[] {
+  const q = question.trim();
+  const queries: string[] = [q];
+  const tokens = tokenize(q);
+  queries.push(...tokens);
+  for (let i = 0; i < tokens.length; i++) {
+    for (let j = i + 1; j < Math.min(i + 3, tokens.length); j++) {
+      queries.push(tokens[i] + ' ' + tokens[j]);
+    }
+  }
+  return [...new Set(queries)];
+}
+
+function detectRepoHint(question: string): string | null {
+  const q = question.toLowerCase();
+  if (/worldquant|brain\s*platform|fitness|sharpe|turnover|neutralization|alpha\s*(factor|check|list)|submission\s*check/i.test(q)) {
+    return 'worldquant';
+  }
+  if (/comp1521|syscall|mips|assembly|寄存器|c\x2d?language|lecture|悉尼大学/i.test(q)) {
+    return 'teach';
+  }
+  if (/工作\s*总结|周报|日报|项目\s*总结|robin/i.test(q)) {
+    return 'summary-for-work';
+  }
+  return null;
+}
+
+function truncate(text: string, max: number): string {
+  if (!text) return '';
+  if (text.length <= max) return text;
+  return text.slice(0, max) + '\n\n...（已截断）';
+}
+
+interface RawSearchResult {
+  docType: string;
+  docId: string;
+  title: string;
+  content?: string;
+  repoName?: string;
+  relPath?: string;
+  repoId?: number;
+}
+
+interface ScoredSource {
+  docType: string;
+  docId: string;
+  repoId: number | null;
+  repoName: string;
+  title: string;
+  relPath: string;
+  content: string;
+  score: number;
+  url: string;
+}
+
+function rawSearch(query: string): RawSearchResult[] {
+  const results: RawSearchResult[] = [];
+  const seen = new Map<string, number>();
+  const pattern = `%${query}%`;
+
+  // 1) search_fts
+  try {
+    const rows = db
+      .select({ docType: searchFts.docType, docId: searchFts.docId, title: searchFts.title, content: searchFts.content })
+      .from(searchFts)
+      .where(or(like(searchFts.title, pattern), like(searchFts.content, pattern)))
+      .limit(50)
+      .all();
+    for (const row of rows as any[]) {
+      const key = `fts:${row.docType}:${row.docId}`;
+      const contentLen = (row.content || '').length;
+      const entry: RawSearchResult = { docType: String(row.docType || ''), docId: String(row.docId || ''), title: String(row.title || ''), content: String(row.content || '') };
+      if (!seen.has(key)) { seen.set(key, results.length); results.push(entry); }
+      else if (contentLen > (results[seen.get(key)!]?.content?.length || 0)) { results[seen.get(key)!] = entry; }
+    }
+  } catch (err) { console.error('[ai.ask] rawSearch fts error:', err); }
+
+  // 2) repo_documents — full content query
+  try {
+    const repoRows = db
+      .select({ id: repoDocuments.id, title: repoDocuments.title, content: repoDocuments.content, relPath: repoDocuments.relPath, repoId: repoDocuments.repoId })
+      .from(repoDocuments)
+      .where(or(like(repoDocuments.title, pattern), like(repoDocuments.content, pattern)))
+      .limit(50)
+      .all() as any[];
+
+    const nameMap = new Map<number, string>();
+    const srcRows = db.select({ id: repoSources.id, name: repoSources.name }).from(repoSources).all() as any[];
+    for (const s of srcRows) nameMap.set(s.id, s.name);
+
+    for (const row of repoRows) {
+      const key = `fts:github_md:${row.id}`;
+      const contentLen = (row.content || '').length;
+      const repoName = nameMap.get(row.repoId) || '';
+      const entry: RawSearchResult = { docType: 'github_md', docId: String(row.id), title: String(row.title || ''), content: String(row.content || ''), repoName, relPath: String(row.relPath || ''), repoId: row.repoId };
+      if (!seen.has(key)) { seen.set(key, results.length); results.push(entry); }
+      else if (contentLen > (results[seen.get(key)!]?.content?.length || 0)) { results[seen.get(key)!] = entry; }
+    }
+  } catch (err) { console.error('[ai.ask] rawSearch repo error:', err); }
+
+  return results;
+}
+
+function rerankAndSelect(docs: RawSearchResult[], question: string, repoHint: string | null): ScoredSource[] {
+  const keywords = tokenize(question.toLowerCase());
+
+  // Expand keywords: include core English terms directly
+  const coreTerms = keywords.filter(k => k.length >= 3);
+  // Also add original question tokens as-is
+  const allTerms = [...new Set([
+    ...coreTerms,
+    ...question.toLowerCase().split(/\s+/).filter(t => t.length >= 2),
+  ])];
+
+  // Helper: check if text includes any term (case-insensitive)
+  const matchesAny = (text: string, terms: string[]) => {
+    const t = text.toLowerCase();
+    return terms.some(term => t.includes(term));
+  };
+
+  const scored: (ScoredSource & { _rawContent: string })[] = docs.map(doc => {
+    let score = 0;
+    const title = doc.title || '';
+    const tLower = title.toLowerCase();
+    const content = doc.content || '';
+    const relPath = doc.relPath || '';
+    const repoName = doc.repoName || '';
+
+    // +100: title exact match (any term)
+    if (allTerms.some(t => tLower === t)) score += 100;
+
+    // +80: title contains core terms
+    if (matchesAny(tLower, coreTerms)) score += 80;
+
+    // +80: repoName matches repoHint
+    if (repoHint && repoName.toLowerCase() === repoHint) score += 80;
+
+    // +60: rel_path matches keywords
+    if (matchesAny(relPath, coreTerms)) score += 60;
+
+    // +40: content contains keywords (in first 5000 chars)
+    const contentPreview = content.slice(0, 5000);
+    if (matchesAny(contentPreview, coreTerms)) score += 40;
+
+    // +10: github_md type (prefer markdown docs)
+    if (doc.docType === 'github_md') score += 10;
+
+    // -30: generic/empty titles
+    if (/^无标题$|^Untitled$|^未命名$|^no title$/i.test(title) || title.length < 4) score -= 30;
+
+    // +5: title has high-relevance words
+    const highRelevance = ['sharpe', 'fitness', 'alpha', 'turnover', 'neutral', 'submission', 'comp1521', 'syscall', 'mips', '教会, 教程, 讲义', '作业', '周报', '日报'];
+    if (matchesAny(tLower, highRelevance)) score += 5;
+
+    // Build url for github_md
+    let url = '/repos';
+    if (doc.docType === 'github_md' && doc.repoId) {
+      url = `/repos?repoId=${doc.repoId}&docId=${doc.docId}`;
+    } else if (doc.docType === 'note') {
+      url = `/notes/${doc.docId}`;
+    } else if (doc.docType === 'memo') {
+      url = '/memos';
+    } else if (doc.docType === 'daily') {
+      url = `/daily/${doc.docId}`;
+    }
+
+    return {
+      docType: doc.docType,
+      docId: doc.docId,
+      repoId: doc.repoId || null,
+      repoName,
+      title,
+      relPath,
+      content,
+      score,
+      url,
+      _rawContent: content,
+    };
+  });
+
+  // Sort: primary by score desc, secondary by content length desc
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return (b._rawContent.length || 0) - (a._rawContent.length || 0);
+  });
+
+  return scored.slice(0, TOP_K);
+}
+
+function buildContextAndSources(docs: ScoredSource[]): { prompt: string; sources: any[] } {
+  // Upgrade content for github_md docs that have short content
+  const githubMdDocs = docs.filter(d => d.docType === 'github_md' && (d.content?.length || 0) < 2000);
+  if (githubMdDocs.length > 0) {
+    try {
+      const ids = githubMdDocs.map(d => parseInt(d.docId, 10)).filter(n => !isNaN(n));
+      if (ids.length > 0) {
+        const idList = ids.join(',');
+        const sqlite: any = (db as any).$client;
+        const upgradeRows = sqlite
+          .prepare(`SELECT rd.id, rd.content, rd.rel_path, rs.name as repo_name
+                    FROM repo_documents rd
+                    LEFT JOIN repo_sources rs ON rd.repo_id = rs.id
+                    WHERE rd.id IN (${idList})`)
+          .all();
+        const contentMap = new Map<number, { content: string; relPath: string; repoName: string }>();
+        for (const r of upgradeRows) contentMap.set(r.id, { content: r.content || '', relPath: r.rel_path || '', repoName: r.repo_name || '' });
+        for (const doc of docs) {
+          const n = parseInt(doc.docId, 10);
+          if (!isNaN(n) && contentMap.has(n)) {
+            const { content, relPath, repoName } = contentMap.get(n)!;
+            if (content && content.length > (doc.content?.length || 0)) {
+              doc.content = content;
+              if (relPath) doc.relPath = relPath;
+              if (repoName) doc.repoName = repoName;
+            }
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  const sources: any[] = [];
+  const sourceSeen = new Set<string>();
+  const contextParts: string[] = [];
+  let totalLen = 0;
+
+  for (const doc of docs) {
+    const srcKey = `${doc.docType}::${doc.title}::${doc.repoName}`;
+    if (sourceSeen.has(srcKey)) continue;
+    if (doc.docType === 'github_md' && !doc.repoName && sources.some((s: any) => s.docType === 'github_md' && s.title === doc.title && s.repoName)) continue;
+    sourceSeen.add(srcKey);
+
+    let label = '';
+    if (doc.docType === 'github_md') {
+      label = `【${doc.repoName || '知识库'}】${doc.title}`;
+    } else if (doc.docType === 'note') {
+      label = `【笔记】${doc.title}`;
+    } else if (doc.docType === 'memo') {
+      label = `【备忘录】${doc.title}`;
+    } else if (doc.docType === 'daily') {
+      label = `【日报】${doc.title}`;
+    }
+
+    const excerpt = truncate(doc.content || '', MAX_DOC_CHARS);
+    const block = `${label}\n${excerpt}\n`;
+    if (totalLen + block.length > MAX_TOTAL_CHARS && totalLen > 0) break;
+    contextParts.push(block);
+    totalLen += block.length;
+
+    sources.push({
+      docType: doc.docType,
+      docId: doc.docId,
+      repoId: doc.repoId,
+      repoName: doc.repoName,
+      title: doc.title,
+      relPath: doc.relPath,
+      score: doc.score,
+      url: doc.url,
+      excerpt: excerpt.slice(0, 500),
+    });
+  }
+
+  return { prompt: `### 知识库上下文\n${contextParts.join('\n')}`, sources };
+}
+
+export async function POST(req: NextRequest) {
+  let question = '';
+  try {
+    const body = await req.json();
+    question = typeof body.question === 'string' ? body.question.trim() : '';
+    if (!question) return NextResponse.json({ error: 'question 是必填项' }, { status: 400 });
+  } catch { return NextResponse.json({ error: '无效的请求体' }, { status: 400 }); }
+
+  const aiBaseUrl = (process.env.AI_BASE_URL || '').trim();
+  const aiApiKey = (process.env.AI_API_KEY || '').trim();
+  const aiModel = (process.env.AI_MODEL || '').trim();
+
+  if (!aiBaseUrl || !aiApiKey || !aiModel) {
+    return NextResponse.json({ configured: false, error: 'AI 未配置' });
+  }
+
+  initDb();
+
+  const repoHint = detectRepoHint(question);
+  const queries = buildSearchQueries(question);
+  console.log('[ai.ask] question=', question);
+  console.log('[ai.ask] repoHint=', repoHint);
+  console.log('[ai.ask] queries=', queries);
+
+  const seen = new Set<string>();
+  const rawResults: RawSearchResult[] = [];
+  for (const q of queries) {
+    const rows = rawSearch(q);
+    for (const row of rows) {
+      const key = `${row.docType}:${row.docId}`;
+      if (!seen.has(key)) { seen.add(key); rawResults.push(row); }
+    }
+  }
+  console.log('[ai.ask] unique rawResults:', rawResults.length);
+
+  const docsWithContent = rawResults.filter(d => (d.content || '').length > 50);
+  console.log('[ai.ask] docsWithContent count:', docsWithContent.length);
+
+  const scoredDocs = rerankAndSelect(docsWithContent, question, repoHint);
+  console.log('[ai.ask] scoredDocs count:', scoredDocs.length);
+  console.log('[ai.ask] rankedSources=', scoredDocs.map(s => ({ title: s.title.slice(0, 40), repoName: s.repoName, relPath: s.relPath, score: s.score })));
+
+  if (scoredDocs.length === 0) {
+    // 知识库未命中，但仍调用 AI 通用回答
+    const systemPrompt = `你是一个知识库问答助手。如果知识库没有相关内容，请基于你的通用知识回答用户问题。
+
+**回答规则：**
+1. 先说明"未命中知识库，以下为通用 AI 回答"
+2. 基于你的知识用中文清晰回答
+3. 条理清晰，适当分段`;
+
+    const userPrompt = `用户问题：${question}`;
+    let answer = '';
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+      const data = await res.json();
+      answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
+    } catch (err: any) {
+      if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: 'AI 请求超时（120s）' });
+      return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: `AI 请求失败: ${err.message}` });
+    }
+    return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer });
+  }
+
+  const { prompt, sources } = buildContextAndSources(scoredDocs);
+  console.log('[ai.ask] final sources count:', sources.length);
+
+  const systemPrompt = `你是一个知识库问答助手。根据提供的「知识库上下文」回答用户问题。
+
+**回答规则：**
+1. 只基于 sources 中的内容回答，不要编造信息
+2. 如果 sources 和问题不完全匹配，明确说明"我没有找到精确匹配的内容，以下是相近的信息："
+3. 优先引用标题最相关的来源，在回答中说明来自哪个来源（如"根据《XXX》..."）
+4. 不要被不相关 sources 带偏，只使用与问题语义最相关的内容
+5. 用中文回答，条理清晰，适当分段
+
+**格式要求：**
+- 如果没有找到相关内容，直接说"我在知识库中没有找到相关内容"
+- 不要在找不到答案时说"根据我的知识"——你有且仅有知识库作为知识来源`;
+
+  const userPrompt = `${prompt}\n\n用户问题：${question}`;
+
+  let answer = '';
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+    const data = await res.json();
+    answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
+  } catch (err: any) {
+    if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources, error: 'AI 请求超时（120s）' });
+    return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}` });
+  }
+
+  return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer });
+}
