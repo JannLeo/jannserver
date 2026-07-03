@@ -12,6 +12,11 @@ import {
   type ProjectWikiMatch,
   type CodeSymbolMatch,
 } from '@/lib/projectBrain';
+import {
+  searchOntologyEntities,
+  getOntologyContextEdges,
+  type OntologyContextEdge,
+} from '@/lib/projectOntology';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -708,6 +713,7 @@ export async function POST(req: NextRequest) {
 
     let projectWikiHits: ProjectWikiMatch[] = [];
     let codeSymbolHits: CodeSymbolMatch[] = [];
+    let ontologyEdges: OntologyContextEdge[] = [];
     let projectSpaceId: number | null = null;
 
     if (projectHit.repoId) {
@@ -735,15 +741,41 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         console.error('[ai.ask] searchCodeSymbols failed:', err);
       }
+
+      // Ontology: 搜实体 → 取 1-hop 关系,作为「关系上下文」加进 AI prompt
+      try {
+        const entityHits = searchOntologyEntities(projectHit.repoId, projectHit.terms);
+        if (entityHits.length > 0) {
+          ontologyEdges = getOntologyContextEdges(
+            entityHits.slice(0, 8).map((h) => h.entity.id),
+            40
+          );
+        }
+      } catch (err) {
+        console.error('[ai.ask] ontology lookup failed:', err);
+      }
     }
 
-    console.log('[ai.ask] projectWikiHits:', projectWikiHits.length, 'codeSymbolHits:', codeSymbolHits.length);
+    console.log(
+      '[ai.ask] projectWikiHits:', projectWikiHits.length,
+      'codeSymbolHits:', codeSymbolHits.length,
+      'ontologyEdges:', ontologyEdges.length
+    );
 
-    if (projectWikiHits.length > 0 || codeSymbolHits.length > 0) {
-      // 构造项目上下文 + sources，调 AI 回答用户问题
+    if (projectWikiHits.length > 0 || codeSymbolHits.length > 0 || ontologyEdges.length > 0) {
+      // 构造项目上下文 + sources,调 AI 回答用户问题
       const contextParts: string[] = [];
       const sources: any[] = [];
       const seenSourceKey = new Set<string>();
+
+      // 0) Ontology 关系上下文(优先,让 AI 知道实体之间的关系)
+      if (ontologyEdges.length > 0) {
+        const edgeLines = ontologyEdges.slice(0, 30).map((e) => {
+          const conf = e.confidence === 'high' ? '' : e.confidence === 'medium' ? ' (中置信)' : ' (低置信)';
+          return `- ${e.fromName} [${e.fromType}] --${e.relationType}--> ${e.toName} [${e.toType}]${conf}`;
+        });
+        contextParts.push(`### 项目本体关系\n${edgeLines.join('\n')}`);
+      }
 
       // 1) project_wiki 命中
       for (const hit of projectWikiHits.slice(0, 3)) {
@@ -792,15 +824,16 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const systemPrompt = `你是一个项目知识库问答助手。根据提供的「项目 Wiki + 代码符号」上下文回答用户问题。
+      const systemPrompt = `你是一个项目知识库问答助手。根据提供的「项目本体关系 + 项目 Wiki + 代码符号」上下文回答用户问题。
 
 **回答规则：**
 1. 只基于上下文中的内容回答，不要编造文件路径/函数名/配置值/commit hash
 2. 如果上下文和问题不完全匹配，明确说明"我没有在项目知识库中找到精确匹配，以下是相关信息："
 3. 在回答中引用 sources 中的文件路径、函数名、commit hash，让用户能定位到来源
 4. 如果涉及代码，明确说明在哪个文件、哪一行附近
-5. 用中文回答，条理清晰，适当分段
-6. 如果上下文完全无法回答问题，直接说"我没有在项目知识库中找到明确来源。"`;
+5. 如果上下文中有「项目本体关系」(entity --relation--> entity)，沿关系推理回答（例如 Module implementedBy File → 该模块的实现文件；Module configuredBy Config → 该模块的相关配置）
+6. 用中文回答，条理清晰，适当分段
+7. 如果上下文完全无法回答问题，直接说"我没有在项目知识库中找到明确来源。"`;
 
       const userPrompt = `### 项目知识库上下文
 ${contextParts.join('\n\n')}

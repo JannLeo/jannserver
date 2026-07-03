@@ -210,3 +210,30 @@ export const projectSymbols = sqliteTable("project_symbols", {
   summary: text("summary").notNull().default(""),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── Project Ontology ────────────────────────────────────────────────────────
+export const ontologyEntities = sqliteTable("ontology_entities", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  repoId: integer("repo_id").notNull().references(() => repoSources.id),
+  entityType: text("entity_type").notNull(),
+  name: text("name").notNull(),
+  canonicalName: text("canonical_name").notNull(),
+  aliasesJson: text("aliases_json").notNull().default("[]"),
+  sourceType: text("source_type").notNull().default(""),
+  sourceId: text("source_id").notNull().default(""),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const ontologyRelations = sqliteTable("ontology_relations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  repoId: integer("repo_id").notNull().references(() => repoSources.id),
+  fromEntityId: integer("from_entity_id").notNull().references(() => ontologyEntities.id),
+  relationType: text("relation_type").notNull(),
+  toEntityId: integer("to_entity_id").notNull().references(() => ontologyEntities.id),
+  confidence: text("confidence").notNull().default("medium"),
+  sourceRefsJson: text("source_refs_json").notNull().default("[]"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});

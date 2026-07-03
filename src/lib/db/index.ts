@@ -208,6 +208,30 @@ CREATE TABLE IF NOT EXISTS project_symbols (
   summary TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS ontology_entities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo_id INTEGER NOT NULL REFERENCES repo_sources(id),
+  entity_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  canonical_name TEXT NOT NULL,
+  aliases_json TEXT NOT NULL DEFAULT '[]',
+  source_type TEXT NOT NULL DEFAULT '',
+  source_id TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS ontology_relations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo_id INTEGER NOT NULL REFERENCES repo_sources(id),
+  from_entity_id INTEGER NOT NULL REFERENCES ontology_entities(id),
+  relation_type TEXT NOT NULL,
+  to_entity_id INTEGER NOT NULL REFERENCES ontology_entities(id),
+  confidence TEXT NOT NULL DEFAULT 'medium',
+  source_refs_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 for (const stmt of createSQL.trim().split(";").filter(s => s.trim())) {
   if (stmt.trim()) sqlite.exec(stmt.trim() + ";");
@@ -230,6 +254,14 @@ const indexes = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_code_files_repo_path ON project_code_files(repo_id, rel_path);`,
   `CREATE INDEX IF NOT EXISTS idx_symbols_repo_name ON project_symbols(repo_id, name);`,
   `CREATE INDEX IF NOT EXISTS idx_symbols_file ON project_symbols(file_id);`,
+  // ontology indexes
+  `CREATE INDEX IF NOT EXISTS idx_ontology_entities_repo_type ON ontology_entities(repo_id, entity_type);`,
+  `CREATE INDEX IF NOT EXISTS idx_ontology_entities_canonical ON ontology_entities(canonical_name);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ontology_entities_repo_type_canonical ON ontology_entities(repo_id, entity_type, canonical_name);`,
+  `CREATE INDEX IF NOT EXISTS idx_ontology_relations_type ON ontology_relations(relation_type);`,
+  `CREATE INDEX IF NOT EXISTS idx_ontology_relations_from ON ontology_relations(from_entity_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_ontology_relations_to ON ontology_relations(to_entity_id);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ontology_relations_triple ON ontology_relations(from_entity_id, relation_type, to_entity_id);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);
