@@ -872,14 +872,11 @@ ${contextParts.join('\n\n')}
 
 **回答规则：**
 1. 只基于 sources 中的内容回答，不要编造信息
-2. 如果 sources 和问题不完全匹配，明确说明"我没有找到精确匹配的内容，以下是相近的信息："
+2. 如果 sources 和问题不完全匹配，诚实说明"我没有找到精确匹配的内容，以下基于相近信息回答"
 3. 优先引用标题最相关的来源，在回答中说明来自哪个来源（如"根据《XXX》..."）
 4. 不要被不相关 sources 带偏，只使用与问题语义最相关的内容
 5. 用中文回答，条理清晰，适当分段
-
-**格式要求：**
-- 如果没有找到相关内容，直接说"我在知识库中没有找到相关内容"
-- 不要在找不到答案时说"根据我的知识"——你有且仅有知识库作为知识来源`;
+6. **不要拒绝回答**——知识库只是参考，即使部分匹配也要给出有用答案`;
 
           const userPrompt = `${prompt}\n\n用户问题：${question}`;
           let answer = '';
@@ -905,60 +902,8 @@ ${contextParts.join('\n\n')}
       }
     }
 
-    // 未命中：repo 内没有相关文档（或 repo 不在数据库），明确告知用户
-    const kwList = repoKwQuery.keywords.join('、');
-    const repoName = repoKwQuery.repoName || '';
-    const fallbackSystemPrompt = `你是知识库问答助手。用户在 ${repoName} 知识库中查询「${kwList}」，但知识库中没有找到相关内容。
-
-**严格规则：**
-1. 必须先明确说明："我没有在 ${repoName} 知识库中找到 ${kwList} 的明确解释。"
-2. 如果你要基于通用知识补充说明，必须明确标注："以下为通用金融/技术概念，不一定适用于 ${repoName}（特别是 WorldQuant BRAIN 平台）。"
-3. 不要把标题写成 "${repoName} 中的 ${kwList}"——因为你并不知道 ${repoName} 中的具体定义
-4. 不要把通用解释包装成 ${repoName} 知识库中的事实
-5. 建议用户去 ${repoName} 仓库原文中搜索关键词确认`;
-
-    const fallbackUserPrompt = `用户问题：${question}\n\n注意：已在 ${repoName} 知识库中搜索 "${kwList}" 及其同义词，未找到匹配文档。`;
-
-    let fallbackAnswer = '';
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
-      const res = await fetch(`${aiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: fallbackSystemPrompt }, { role: 'user', content: fallbackUserPrompt }], temperature: 0.3 }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-      const data = await res.json();
-      fallbackAnswer = data.choices?.[0]?.message?.content || 'AI 返回为空';
-    } catch (err: any) {
-      if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: 'AI 请求超时（120s）' });
-      return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: `AI 请求失败: ${err.message}` });
-    }
-    // wiki + repo 均未命中，写入 wiki_error_book（仅 worldquant 概念查询）
-    if (wqConcept.detected) {
-      try {
-        const sid = wqSpaceId ?? getOrCreateSpace('worldquant');
-        recordWikiError({
-          spaceId: sid,
-          question,
-          failureType: 'wiki_miss_repo_miss',
-          missingConcept: kwList,
-          notes: `wiki_pages 中未找到，repo_documents 中也未找到 ${kwList}`,
-        });
-      } catch (e) { console.error('[ai.ask] recordWikiError failed:', e); }
-    }
-    return NextResponse.json({
-      configured: true,
-      sources: [],
-      usedKnowledgeBase: false,
-      answer: fallbackAnswer,
-      repoScopedMiss: true,
-      repoName,
-      keywords: repoKwQuery.keywords,
-    });
+    // 未命中：继续到下方通用 FTS fallback 路径
+    // （不要 early return，让 scoredDocs=0 时走通用 AI 兜底）
   }
   // ────────────────────────────────────────────────────────────────
 
@@ -1024,14 +969,11 @@ ${contextParts.join('\n\n')}
 
 **回答规则：**
 1. 只基于 sources 中的内容回答，不要编造信息
-2. 如果 sources 和问题不完全匹配，明确说明"我没有找到精确匹配的内容，以下是相近的信息："
+2. 如果 sources 和问题不完全匹配，诚实说明"我没有找到精确匹配的内容，以下基于相近信息回答"
 3. 优先引用标题最相关的来源，在回答中说明来自哪个来源（如"根据《XXX》..."）
 4. 不要被不相关 sources 带偏，只使用与问题语义最相关的内容
 5. 用中文回答，条理清晰，适当分段
-
-**格式要求：**
-- 如果没有找到相关内容，直接说"我在知识库中没有找到相关内容"
-- 不要在找不到答案时说"根据我的知识"——你有且仅有知识库作为知识来源`;
+6. **不要拒绝回答**——知识库只是参考，即使部分匹配也要给出有用答案`;
 
   const userPrompt = `${prompt}\n\n用户问题：${question}`;
 
