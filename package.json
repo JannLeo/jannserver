@@ -41,5 +41,8 @@
   },
   "better-sqlite3": {
     "prebuild-install": "false"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
   }
 }
