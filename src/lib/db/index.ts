@@ -144,6 +144,18 @@ for (const stmt of createSQL.trim().split(";").filter(s => s.trim())) {
   if (stmt.trim()) sqlite.exec(stmt.trim() + ";");
 }
 
+// Indexes for repo_documents (must add after table creation)
+const indexes = [
+  `CREATE INDEX IF NOT EXISTS idx_repo_documents_repo_id ON repo_documents(repo_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_repo_documents_repo_title ON repo_documents(repo_id, title);`,
+  `CREATE INDEX IF NOT EXISTS idx_repo_documents_repo_updated ON repo_documents(repo_id, updated_at);`,
+  // search_fts index
+  `CREATE INDEX IF NOT EXISTS idx_search_fts_doc ON search_fts(doc_type, doc_id);`,
+];
+for (const idx of indexes) {
+  sqlite.exec(idx);
+}
+
 const db = drizzle(sqlite, { schema });
 
 export function initDb() {}

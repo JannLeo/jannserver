@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface Repo {
   id: number;
@@ -11,19 +11,25 @@ interface Repo {
   lastSyncAt: string | null;
 }
 
-interface RepoDocument {
+interface DocSummary {
   id: number;
   repoId: number;
-  filePath: string;
   title: string;
-  excerpt: string;
-  contentHash: string;
   relPath: string;
+  filePath: string;
+  excerpt: string;
   updatedAt: string;
 }
 
-interface DocDetail extends RepoDocument {
+interface DocDetail extends DocSummary {
   content: string;
+}
+
+interface DocsResponse {
+  items: DocSummary[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 interface SyncResult {
@@ -46,16 +52,23 @@ export default function ReposPage() {
   const [syncing, setSyncing] = useState<number | null>(null);
   const [syncResults, setSyncResults] = useState<Record<number, SyncResult>>({});
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
-  const [documents, setDocuments] = useState<RepoDocument[]>([]);
+  const [documents, setDocuments] = useState<DocSummary[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<DocDetail | null>(null);
   const [loadingDoc, setLoadingDoc] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
 
-  // Fetch repos on mount
+  // Pagination state
+  const [docsTotal, setDocsTotal] = useState(0);
+  const [docsOffset, setDocsOffset] = useState(0);
+  const [docsLimit] = useState(100);
+  const [searchQ, setSearchQ] = useState('');
+  const searchQRef = useRef('');
+
+  // Init: fetch repos first
   useEffect(() => { fetchRepos(); }, []);
 
-  // After repos load, read URL params and initialize selection
+  // After repos load, check URL for deep link (repoId + optional docId)
   useEffect(() => {
     if (repos.length === 0) return;
     const params = new URLSearchParams(window.location.search);
@@ -65,13 +78,26 @@ export default function ReposPage() {
 
     const repoId = parseInt(repoIdParam, 10);
     if (isNaN(repoId)) return;
-
     const repo = repos.find(r => r.id === repoId);
     if (!repo) return;
 
-    // Select repo, load docs, optionally load doc
     setSelectedRepo(repo);
-    loadDocuments(repo.id, docIdParam ? parseInt(docIdParam, 10) : null);
+    setSearchQ('');
+    searchQRef.current = '';
+    setDocsOffset(0);
+
+    if (docIdParam) {
+      const docId = parseInt(docIdParam, 10);
+      if (!isNaN(docId)) {
+        // Deep link: directly load doc without waiting for list
+        loadDocumentDirect(repoId, docId);
+        loadDocs(repoId, 0, '');
+      } else {
+        loadDocs(repoId, 0, '');
+      }
+    } else {
+      loadDocs(repoId, 0, '');
+    }
   }, [repos]);
 
   const fetchRepos = async () => {
@@ -103,64 +129,106 @@ export default function ReposPage() {
       const res = await fetch(`/api/repos/${repo.id}/sync`, { method: 'POST' });
       const result: SyncResult = await res.json();
       setSyncResults(prev => ({ ...prev, [repo.id]: result }));
-      if (selectedRepo?.id === repo.id) loadDocuments(repo.id, null);
+      if (selectedRepo?.id === repo.id) {
+        setSearchQ('');
+        searchQRef.current = '';
+        setDocsOffset(0);
+        loadDocs(repo.id, 0, '');
+      }
     } catch (err: any) {
       setSyncResults(prev => ({ ...prev, [repo.id]: { success: false, message: String(err) } }));
     }
     setSyncing(null);
   };
 
-  const loadDocuments = async (repoId: number, docIdToSelect: number | null = null) => {
+  // Load paginated docs
+  const loadDocs = useCallback(async (repoId: number, offset: number, q: string) => {
     setLoadingDocs(true);
-    setSelectedDoc(null);
-    setDocError(null);
     try {
-      const repo = repos.find(r => r.id === repoId);
-      if (repo) setSelectedRepo(repo);
-      const res = await fetch(`/api/repos/${repoId}/documents`);
+      const params = new URLSearchParams({ limit: String(docsLimit), offset: String(offset) });
+      if (q) params.set('q', q);
+      const res = await fetch(`/api/repos/${repoId}/documents?${params}`);
       if (res.ok) {
-        const docs = await res.json();
-        setDocuments(docs);
-        // If docId was in URL, auto-select it
-        if (docIdToSelect) {
-          const found = docs.find((d: RepoDocument) => d.id === docIdToSelect);
-          if (found) {
-            await loadDocument(repoId, found.id);
-          } else {
-            setDocError('文档不存在或未同步');
-          }
+        const data: DocsResponse = await res.json();
+        if (offset === 0) {
+          setDocuments(data.items);
+        } else {
+          setDocuments(prev => [...prev, ...data.items]);
         }
+        setDocsTotal(data.total);
+        setDocsOffset(offset + data.items.length);
       }
     } catch {}
     setLoadingDocs(false);
+  }, [docsLimit]);
+
+  // Search with debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (selectedRepo && searchQRef.current !== searchQ) {
+        searchQRef.current = searchQ;
+        setDocsOffset(0);
+        loadDocs(selectedRepo.id, 0, searchQ);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQ, selectedRepo, loadDocs]);
+
+  // Load more
+  const handleLoadMore = () => {
+    if (!selectedRepo) return;
+    loadDocs(selectedRepo.id, docsOffset, searchQRef.current);
   };
 
-  const loadDocument = async (repoId: number, docId: number) => {
+  // Direct doc load (for deep links, bypasses list)
+  const loadDocumentDirect = async (repoId: number, docId: number) => {
     setLoadingDoc(true);
     setDocError(null);
+    setSelectedDoc(null);
     try {
       const res = await fetch(`/api/repos/${repoId}/documents/${docId}`);
       if (res.ok) {
-        setSelectedDoc(await res.json());
+        const doc: DocDetail = await res.json();
+        setSelectedDoc(doc);
       } else {
-        setSelectedDoc(null);
         setDocError('文档不存在或未同步');
       }
     } catch { setDocError('加载文档失败'); }
     setLoadingDoc(false);
   };
 
-  // Update URL when repo/doc selection changes
+  // Load doc from list click
+  const loadDocument = async (repoId: number, docId: number) => {
+    setLoadingDoc(true);
+    setDocError(null);
+    setSelectedDoc(null);
+    try {
+      const res = await fetch(`/api/repos/${repoId}/documents/${docId}`);
+      if (res.ok) {
+        setSelectedDoc(await res.json());
+      } else {
+        setDocError('文档不存在或未同步');
+      }
+    } catch { setDocError('加载文档失败'); }
+    setLoadingDoc(false);
+  };
+
+  // Select repo (resets search, doc)
   const handleRepoSelect = (repo: Repo) => {
     setSelectedRepo(repo);
     setSelectedDoc(null);
     setDocError(null);
     setDocuments([]);
+    setSearchQ('');
+    searchQRef.current = '';
+    setDocsOffset(0);
+    setDocsTotal(0);
     window.history.replaceState(null, '', `/repos?repoId=${repo.id}`);
-    loadDocuments(repo.id, null);
+    loadDocs(repo.id, 0, '');
   };
 
-  const handleDocSelect = (doc: RepoDocument) => {
+  // Select doc from list
+  const handleDocSelect = (doc: DocSummary) => {
     if (!selectedRepo) return;
     loadDocument(selectedRepo.id, doc.id);
     window.history.replaceState(null, '', `/repos?repoId=${selectedRepo.id}&docId=${doc.id}`);
@@ -171,6 +239,9 @@ export default function ReposPage() {
     const d = new Date(iso);
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   };
+
+  const showing = documents.length;
+  const hasMore = showing < docsTotal;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -190,10 +261,7 @@ export default function ReposPage() {
             ) : repos.length === 0 ? (
               <div>
                 <p className="text-sm text-slate-400 mb-3">尚未配置仓库</p>
-                <button
-                  onClick={ensureRepos}
-                  className="w-full bg-blue-500 text-white rounded-lg py-2 text-sm hover:bg-blue-600"
-                >
+                <button onClick={ensureRepos} className="w-full bg-blue-500 text-white rounded-lg py-2 text-sm hover:bg-blue-600">
                   添加三个知识库仓库
                 </button>
               </div>
@@ -209,9 +277,7 @@ export default function ReposPage() {
                   onClick={() => handleRepoSelect(repo)}
                 >
                   <div className="font-medium text-sm">{repo.name}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">
-                    上次同步: {formatDate(repo.lastSyncAt)}
-                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">上次同步: {formatDate(repo.lastSyncAt)}</div>
                   <button
                     onClick={e => { e.stopPropagation(); handleSync(repo); }}
                     disabled={syncing === repo.id}
@@ -223,7 +289,6 @@ export default function ReposPage() {
                   >
                     {syncing === repo.id ? '同步中...' : '🔄 同步'}
                   </button>
-
                   {syncResults[repo.id] && syncing === null && (
                     <div className={`mt-2 text-xs p-2 rounded ${
                       syncResults[repo.id].success
@@ -247,6 +312,25 @@ export default function ReposPage() {
             <h2 className="text-sm font-bold text-slate-700 mb-3">
               {selectedRepo ? `${selectedRepo.name} 的文档` : '文档列表'}
             </h2>
+
+            {/* Search box */}
+            {selectedRepo && (
+              <div className="mb-3">
+                <input
+                  type="text"
+                  value={searchQ}
+                  onChange={e => setSearchQ(e.target.value)}
+                  placeholder="搜索标题或路径..."
+                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                {docsTotal > 0 && (
+                  <div className="text-xs text-slate-400 mt-1">
+                    显示 {showing} / {docsTotal}
+                  </div>
+                )}
+              </div>
+            )}
+
             {loadingDocs ? (
               <p className="text-sm text-slate-400">加载中...</p>
             ) : !selectedRepo ? (
@@ -255,7 +339,7 @@ export default function ReposPage() {
               <p className="text-sm text-slate-400">暂无文档，先点击同步拉取仓库</p>
             ) : (
               <div className="space-y-2">
-                {documents.slice(0, 100).map(doc => (
+                {documents.map(doc => (
                   <div
                     key={doc.id}
                     className={`p-2 rounded border cursor-pointer text-sm transition ${
@@ -269,6 +353,16 @@ export default function ReposPage() {
                     <div className="text-xs text-slate-400 truncate mt-0.5">{doc.relPath}</div>
                   </div>
                 ))}
+
+                {/* Load more */}
+                {hasMore && (
+                  <button
+                    onClick={handleLoadMore}
+                    className="w-full py-2 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg hover:bg-blue-50 transition"
+                  >
+                    加载更多 ({showing} / {docsTotal})
+                  </button>
+                )}
               </div>
             )}
           </div>
