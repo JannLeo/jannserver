@@ -8,15 +8,15 @@ interface NavBarProps {
   backLabel?: string;
 }
 
-const navLinks = [
-  ['/dashboard', '工作台'],
-  ['/notes', '笔记'],
-  ['/tasks', '任务'],
-  ['/memos', '备忘'],
-  ['/daily', 'Daily'],
-  ['/projects', '项目'],
-  ['/repos', '知识库'],
-  ['/ask', 'AI 问答'],
+const navLinks: [string, string, string][] = [
+  ['/dashboard', '🏠', '工作台'],
+  ['/notes', '📝', '笔记'],
+  ['/tasks', '✅', '任务'],
+  ['/memos', '💡', '备忘'],
+  ['/daily', '📅', 'Daily'],
+  ['/projects', '📁', '项目'],
+  ['/repos', '📚', '知识库'],
+  ['/ask', '🤖', 'AI 问答'],
 ];
 
 export default function NavBar({ title, backTo, backLabel }: NavBarProps) {
@@ -68,23 +68,24 @@ export default function NavBar({ title, backTo, backLabel }: NavBarProps) {
             )}
           </div>
 
-          {/* 中间 / 右侧：导航链接 */}
-          <nav className="flex items-center gap-0.5 overflow-x-auto scrollbar-none flex-1 justify-end">
-            {navLinks.map(([href, label]) => {
+          {/* 右侧：导航链接 */}
+          <nav className="flex items-center gap-1 overflow-x-auto scrollbar-none ml-auto flex-shrink-0">
+            {navLinks.map(([href, icon, label]) => {
               const isActive = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
               return (
                 <Link
                   key={href}
                   href={href}
                   className={`
-                    px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all flex-shrink-0
+                    px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all flex-shrink-0 flex items-center gap-1.5
                     ${isActive
                       ? 'bg-blue-600 text-white shadow-sm'
                       : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
                     }
                   `}
                 >
-                  {label}
+                  <span>{icon}</span>
+                  <span>{label}</span>
                 </Link>
               );
             })}
