@@ -1,15 +1,16 @@
 'use client';
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import NavBar from '@/components/NavBar';
 
 interface Source {
   docType: string;
-  docId: string;
+  docId?: string;
   title: string;
   repoName?: string;
   repoId?: number;
   url?: string;
-  excerpt: string;
+  excerpt?: string;
 }
 
 interface AskResult {
@@ -26,6 +27,7 @@ function getTypeLabel(docType: string): string {
     memo: '备忘录',
     daily: '日报',
     github_md: 'GitHub 文档',
+    repo: '仓库',
   };
   return labels[docType] || docType;
 }
@@ -36,6 +38,7 @@ function getTypeIcon(docType: string): string {
     memo: '📋',
     daily: '📅',
     github_md: '📄',
+    repo: '📦',
   };
   return icons[docType] || '📄';
 }

@@ -1,8 +1,8 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import { db, initDb } from '@/lib/db/index';
+import { db, sqlite, initDb } from '@/lib/db/index';
 import { searchFts, repoDocuments, repoSources } from '@/lib/db/schema';
-import { or, like } from 'drizzle-orm';
+import { or, like, eq } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -215,8 +215,8 @@ function buildContextAndSources(docs: ScoredSource[]): { prompt: string; sources
       const ids = githubMdDocs.map(d => parseInt(d.docId, 10)).filter(n => !isNaN(n));
       if (ids.length > 0) {
         const idList = ids.join(',');
-        const sqlite: any = (db as any).$client;
-        const upgradeRows = sqlite
+        const rawSqlite: any = sqlite;
+        const upgradeRows = rawSqlite
           .prepare(`SELECT rd.id, rd.content, rd.rel_path, rs.name as repo_name
                     FROM repo_documents rd
                     LEFT JOIN repo_sources rs ON rd.repo_id = rs.id
@@ -283,6 +283,173 @@ function buildContextAndSources(docs: ScoredSource[]): { prompt: string; sources
   return { prompt: `### 知识库上下文\n${contextParts.join('\n')}`, sources };
 }
 
+// ─── Repo Meta Query Detection ─────────────────────────────────────────────────
+
+interface RepoMetaResult {
+  detected: boolean;
+  repoName: string | null;
+  reason: string;
+}
+
+/**
+ * 检测问题是否为「知识库元信息查询」
+ * 例如："知识库里面有 summary-for-work 吗？"
+ *       "worldquant 有哪些内容？"
+ *       "teach 同步了吗？"
+ */
+function detectRepoMetaQuery(question: string): RepoMetaResult {
+  const q = question.trim();
+
+  // 已知仓库名列表
+  const knownRepos = ['summary-for-work', 'worldquant', 'teach'];
+
+  // Pattern 1: 直接提到 repo 名称的元查询
+  for (const repo of knownRepos) {
+    // 匹配：知识库里面有 xxx 吗 / xxx 有哪些内容 / xxx 同步了吗 / xxx 里面有什么
+    const metaPatterns = [
+      // "知识库里面有/有没有/有 xxx 吗/内容" — 中间可能有空格或标点
+      new RegExp(`知识库\\s*(里\\s*面\\s*有|里\\s*有|有没有|有|包含)\\s*.*${repo}`, 'i'),
+      new RegExp(`知识库\\s*里?\\s*面?\\s*(有|包含)\\s*${repo}`, 'i'),
+      // "xxx 有哪些内容/有什么/同步了"
+      new RegExp(`${repo}\\s*(有\\s*哪\\s*些|有哪些|有什么|里面有什么|同步了|同步|包含了|内容)`, 'i'),
+      // 单独 repo 名提问
+      new RegExp(`^${repo}\\s*[？?]?$`, 'i'),
+    ];
+    for (const p of metaPatterns) {
+      if (p.test(q)) {
+        return { detected: true, repoName: repo, reason: `repo-meta:${p.source.slice(0, 40)}` };
+      }
+    }
+    // 直接问 repo 名称
+    if (new RegExp(`^${repo}\\s*[？?]$`).test(q)) {
+      return { detected: true, repoName: repo, reason: `repo-name-query:${repo}` };
+    }
+  }
+
+  // Pattern 2: 泛化元查询关键词
+  const metaKeywords = ['知识库\\s*(里|里面|有|有没有)', '同步了', '有哪些内容', '有哪', '有什么'];
+  for (const kw of metaKeywords) {
+    for (const repo of knownRepos) {
+      if (new RegExp(`${kw}.*${repo}`, 'i').test(q) ||
+          new RegExp(`${repo}.*${kw.replace(/\\s/g, '')}`, 'i').test(q)) {
+        return { detected: true, repoName: repo, reason: `keyword-match:${kw.slice(0, 15)}:${repo}` };
+      }
+    }
+  }
+
+  return { detected: false, repoName: null, reason: '' };
+}
+
+interface RepoMetaInfo {
+  id: number;
+  name: string;
+  url: string;
+  localPath: string;
+  lastSyncAt: string | null;
+  docCount: number;
+  recentTitles: string[];
+}
+
+/**
+ * 查询仓库元信息：doc 数量、示例标题
+ */
+/**
+ * 查询仓库元信息：doc 数量、示例标题
+ * 使用 raw sqlite（bypasses drizzle ORM quirks）以确保可靠
+ */
+function getRepoMetaInfo(repoName: string): RepoMetaInfo | null {
+  try {
+    // Use direct sqlite (exported from db/index.ts)
+    const rawSqlite: any = sqlite;
+    if (!rawSqlite?.prepare) return null;
+
+    // Query repo by name
+    const srcRow = rawSqlite
+      .prepare('SELECT id, name, url, local_path, last_sync_at FROM repo_sources WHERE name = ?')
+      .get(repoName) as any;
+    if (!srcRow) return null;
+
+    // Count docs
+    const countRow = rawSqlite
+      .prepare('SELECT COUNT(*) as cnt FROM repo_documents WHERE repo_id = ?')
+      .get(srcRow.id) as any;
+    const docCount = countRow?.cnt || 0;
+
+    // Get recent titles
+    const recentTitles: string[] = [];
+    try {
+      const titleRows = rawSqlite
+        .prepare('SELECT title FROM repo_documents WHERE repo_id = ? ORDER BY updated_at DESC LIMIT 10')
+        .all(srcRow.id) as any[];
+      for (const t of titleRows) recentTitles.push((t.title || '').trim() || '无标题');
+    } catch (_e) {}
+
+    return {
+      id: srcRow.id,
+      name: srcRow.name,
+      url: srcRow.url,
+      localPath: srcRow.local_path || '',
+      lastSyncAt: srcRow.last_sync_at || null,
+      docCount,
+      recentTitles,
+    };
+  } catch (_e) {
+    return null;
+  }
+}
+
+function formatRepoAnswer(meta: RepoMetaInfo): { answer: string; sources: any[] } {
+  const lastSync = meta.lastSyncAt
+    ? new Date(meta.lastSyncAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+    : '从未同步';
+
+  const answer = [
+    `✅ 有的，${meta.name} 已经在知识库中。`,
+    ``,
+    `**仓库信息：**`,
+    `- 文档数量：${meta.docCount} 篇 Markdown 文档`,
+    `- 最近同步时间：${lastSync}`,
+    ``,
+    `**部分文档标题示例：**`,
+    ...meta.recentTitles.slice(0, 5).map((t, i) => `${i + 1}. ${t}`),
+    ``,
+    `你可以点击下方的「参考来源」进入仓库查看全部文档。`,
+  ].join('\n');
+
+  const sources = [{
+    docType: 'repo',
+    repoId: meta.id,
+    repoName: meta.name,
+    title: `${meta.name}（${meta.docCount} 篇文档）`,
+    url: `/repos?repoId=${meta.id}`,
+    excerpt: `${meta.name} 已同步 ${meta.docCount} 篇文档，最近同步于 ${lastSync}`,
+  }];
+
+  return { answer, sources };
+}
+
+function handleRepoMetaQuery(question: string): { answer: string; sources: any[]; usedKnowledgeBase: boolean } | null {
+  const meta = detectRepoMetaQuery(question);
+  if (!meta.detected || !meta.repoName) return null;
+
+  const info = getRepoMetaInfo(meta.repoName);
+  if (!info) {
+    // Repo 存在但 docCount=0 也走通用 FTS
+    if (info === null && !['summary-for-work', 'worldquant', 'teach'].includes(meta.repoName)) {
+      return null;
+    }
+    // Repo 确实不存在（非已知名），给出明确回复，不再走 FTS
+    return {
+      answer: `❌ 知识库中没有名为 **${meta.repoName}** 的仓库。\n\n目前已同步的仓库有：summary-for-work、worldquant、teach。你可以问我这些仓库的内容。`,
+      sources: [],
+      usedKnowledgeBase: false,
+    };
+  }
+
+  const { answer, sources } = formatRepoAnswer(info);
+  return { answer, sources, usedKnowledgeBase: true };
+}
+
 export async function POST(req: NextRequest) {
   let question = '';
   try {
@@ -300,6 +467,18 @@ export async function POST(req: NextRequest) {
   }
 
   initDb();
+
+  // ── Step 0: Repo 元信息查询（最高优先级，不走 FTS）──────────────
+  const repoMetaResult = handleRepoMetaQuery(question);
+  if (repoMetaResult) {
+    return NextResponse.json({
+      configured: true,
+      answer: repoMetaResult.answer,
+      sources: repoMetaResult.sources,
+      usedKnowledgeBase: repoMetaResult.usedKnowledgeBase,
+    });
+  }
+  // ────────────────────────────────────────────────────────────────
 
   const repoHint = detectRepoHint(question);
   const queries = buildSearchQueries(question);
