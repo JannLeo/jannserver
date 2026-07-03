@@ -135,3 +135,51 @@ export const repoDocuments = sqliteTable("repo_documents", {
   excerpt: text("excerpt").notNull().default(""),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── LLM-Wiki 知识层 ───────────────────────────────────────────────────────
+export const wikiSpaces = sqliteTable("wiki_spaces", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  sourceType: text("source_type").notNull().default("repo"),
+  sourceId: integer("source_id").references(() => repoSources.id),
+  description: text("description").default(""),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const wikiPages = sqliteTable("wiki_pages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  spaceId: integer("space_id").notNull().references(() => wikiSpaces.id),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").default(""),
+  content: text("content").notNull().default(""),
+  aliasesJson: text("aliases_json").notNull().default("[]"),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  sourceRefsJson: text("source_refs_json").notNull().default("[]"),
+  confidence: text("confidence").notNull().default("medium"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const wikiLinks = sqliteTable("wiki_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  spaceId: integer("space_id").notNull().references(() => wikiSpaces.id),
+  fromPageId: integer("from_page_id").notNull().references(() => wikiPages.id),
+  toPageId: integer("to_page_id"),
+  linkText: text("link_text").notNull().default(""),
+  relationType: text("relation_type").notNull().default("related"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const wikiErrorBook = sqliteTable("wiki_error_book", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  spaceId: integer("space_id").references(() => wikiSpaces.id),
+  question: text("question").notNull(),
+  failureType: text("failure_type").notNull(),
+  missingConcept: text("missing_concept").default(""),
+  notes: text("notes").default(""),
+  resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});

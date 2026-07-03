@@ -2,7 +2,7 @@ import { db, initDb } from './db/index';
 import { searchFts } from './db/schema';
 import { eq, or, like } from 'drizzle-orm';
 
-export async function updateFts(docType: 'note' | 'memo' | 'daily' | 'github_md', docId: string, title: string, content: string) {
+export async function updateFts(docType: 'note' | 'memo' | 'daily' | 'github_md' | 'wiki_page', docId: string, title: string, content: string) {
   initDb();
   // 先删后插
   db.delete(searchFts).where(eq(searchFts.docId, docId)).run();
@@ -15,12 +15,12 @@ export async function deleteFts(docId: string) {
 }
 
 export interface SearchResult {
-  docType: 'note' | 'memo' | 'daily' | 'github_md';
+  docType: 'note' | 'memo' | 'daily' | 'github_md' | 'wiki_page';
   docId: string;
   title: string;
 }
 
-export async function searchAll(query: string, docType?: 'note' | 'memo' | 'daily' | 'github_md'): Promise<SearchResult[]> {
+export async function searchAll(query: string, docType?: 'note' | 'memo' | 'daily' | 'github_md' | 'wiki_page'): Promise<SearchResult[]> {
   initDb();
   const { sql } = require('drizzle-orm');
 

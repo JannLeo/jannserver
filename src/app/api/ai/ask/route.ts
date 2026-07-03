@@ -1,8 +1,9 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { db, sqlite, initDb } from '@/lib/db/index';
-import { searchFts, repoDocuments, repoSources } from '@/lib/db/schema';
-import { or, like, eq } from 'drizzle-orm';
+import { searchFts, repoDocuments, repoSources, wikiPages, wikiSpaces } from '@/lib/db/schema';
+import { or, like, eq, and } from 'drizzle-orm';
+import { searchWikiPages, getOrCreateSpace, recordWikiError } from '@/lib/wiki';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,174 @@ function tokenize(text: string): string[] {
     .replace(/[？\?\.\，\,，。\.！\!、、\'\"\'""【】\[\]（）\(\)]/g, ' ')
     .split(/\s+/)
     .filter(t => t.length >= 2);
+}
+
+// ─── Repo-scoped keyword query detection ─────────────────────────────────────
+// 已知仓库名
+const KNOWN_REPO_NAMES = ['summary-for-work', 'worldquant', 'teach'];
+
+// WorldQuant / BRAIN 常见概念关键词 + 中英文同义词扩展
+const KEYWORD_SYNONYMS: Record<string, string[]> = {
+  margin: ['margin', 'Margin', '保证金', '边际', '收益效率'],
+  fitness: ['fitness', 'Fitness', '适应度', '拟合度'],
+  turnover: ['turnover', 'Turnover', '换手率', '换手'],
+  sharpe: ['sharpe', 'Sharpe', '夏普', '夏普比率'],
+  neutralization: ['neutralization', 'Neutralization', '中性化', '中性'],
+  decay: ['decay', 'Decay', '衰减', '衰减期'],
+  alpha: ['alpha', 'Alpha', '阿尔法', '因子'],
+  submission: ['submission', 'Submission', '提交', '提交检查'],
+  backtest: ['backtest', 'Backtest', '回测'],
+  leverage: ['leverage', 'Leverage', '杠杆'],
+  exposure: ['exposure', 'Exposure', '敞口', '暴露'],
+  beta: ['beta', 'Beta', '贝塔'],
+  correlation: ['correlation', 'Correlation', '相关性', '相关'],
+  drawdown: ['drawdown', 'Drawdown', '回撤'],
+  volatility: ['volatility', 'Volatility', '波动率', '波动'],
+  long: ['long', 'Long', '多头', '做多'],
+  short: ['short', 'Short', '空头', '做空'],
+};
+
+interface RepoKeywordQuery {
+  detected: boolean;
+  repoName: string | null;
+  repoId: number | null;
+  keywords: string[];        // 原始关键词
+  searchTerms: string[];     // 扩展后的搜索词（中英文同义词）
+}
+
+/**
+ * 检测「repo 名 + 关键词」组合查询
+ * 例如："worldquant里面什么是margin" → repo=worldquant, keyword=margin
+ */
+function detectRepoKeywordQuery(question: string): RepoKeywordQuery {
+  const q = question.toLowerCase();
+  const result: RepoKeywordQuery = { detected: false, repoName: null, repoId: null, keywords: [], searchTerms: [] };
+
+  // 1. 检测 repo 名
+  let detectedRepo: string | null = null;
+  for (const repo of KNOWN_REPO_NAMES) {
+    if (q.includes(repo.toLowerCase())) {
+      detectedRepo = repo;
+      break;
+    }
+  }
+  if (!detectedRepo) return result;
+
+  // 2. 检测关键词（英文原词 + 同义词）
+  const detectedKeywords: string[] = [];
+  const searchTerms = new Set<string>();
+
+  for (const [canonical, synonyms] of Object.entries(KEYWORD_SYNONYMS)) {
+    for (const syn of synonyms) {
+      if (q.includes(syn.toLowerCase())) {
+        detectedKeywords.push(canonical);
+        // 把所有同义词都加入搜索词
+        for (const s of synonyms) searchTerms.add(s);
+        break; // 同一组同义词只加一次
+      }
+    }
+  }
+
+  if (detectedKeywords.length === 0) return result;
+
+  // 3. 查询 repoId
+  let repoId: number | null = null;
+  try {
+    const srcRow = db.select().from(repoSources).all().find(r => r.name === detectedRepo);
+    if (srcRow) repoId = srcRow.id;
+  } catch { /* ignore */ }
+
+  result.detected = true;
+  result.repoName = detectedRepo;
+  result.repoId = repoId;
+  result.keywords = [...new Set(detectedKeywords)];
+  result.searchTerms = Array.from(searchTerms);
+  return result;
+}
+
+// ─── WorldQuant 概念检测（用于 wiki_page 命中）─────────────────────────────
+interface WQConceptDetection {
+  detected: boolean;
+  concepts: string[];      // canonical concept slugs
+  searchTerms: string[];   // 所有同义词
+}
+
+/**
+ * 检测问题是否包含 worldquant/WQ + 概念关键词
+ * 仅当同时包含 repo 名和概念关键词时才触发
+ */
+function detectWorldQuantConcept(question: string): WQConceptDetection {
+  const q = question.toLowerCase();
+  // 必须包含 worldquant / WQ / BRAIN 平台
+  if (!/worldquant|\bwq\b|brain\s*(平台|platform)/i.test(q)) {
+    return { detected: false, concepts: [], searchTerms: [] };
+  }
+  // 复用 KEYWORD_SYNONYMS 检测概念
+  const concepts: string[] = [];
+  const searchTerms = new Set<string>();
+  for (const [canonical, synonyms] of Object.entries(KEYWORD_SYNONYMS)) {
+    for (const syn of synonyms) {
+      if (q.includes(syn.toLowerCase())) {
+        concepts.push(canonical);
+        for (const s of synonyms) searchTerms.add(s);
+        break;
+      }
+    }
+  }
+  if (concepts.length === 0) return { detected: false, concepts: [], searchTerms: [] };
+  return { detected: true, concepts, searchTerms: Array.from(searchTerms) };
+}
+
+/**
+ * 在指定 repo 内搜索关键词（限定 repo_id）
+ */
+function rawSearchInRepo(repoId: number, searchTerms: string[]): RawSearchResult[] {
+  const results: RawSearchResult[] = [];
+  const seen = new Set<string>();
+
+  for (const term of searchTerms) {
+    if (!term || term.length < 2) continue;
+    const pattern = `%${term}%`;
+    try {
+      const repoRows = db
+        .select({
+          id: repoDocuments.id,
+          title: repoDocuments.title,
+          content: repoDocuments.content,
+          relPath: repoDocuments.relPath,
+          repoId: repoDocuments.repoId,
+        })
+        .from(repoDocuments)
+        .where(and(eq(repoDocuments.repoId, repoId), or(like(repoDocuments.title, pattern), like(repoDocuments.content, pattern))))
+        .limit(30)
+        .all() as any[];
+
+      for (const row of repoRows) {
+        const key = `github_md:${row.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push({
+          docType: 'github_md',
+          docId: String(row.id),
+          title: String(row.title || ''),
+          content: String(row.content || ''),
+          relPath: String(row.relPath || ''),
+          repoId: row.repoId,
+          repoName: '', // will be filled later
+        });
+      }
+    } catch (err) { console.error('[ai.ask] rawSearchInRepo error:', err); }
+  }
+
+  // 填充 repoName
+  try {
+    const srcRow = db.select().from(repoSources).where(eq(repoSources.id, repoId)).get() as any;
+    if (srcRow) {
+      for (const r of results) r.repoName = srcRow.name;
+    }
+  } catch { /* ignore */ }
+
+  return results;
 }
 
 function buildSearchQueries(question: string): string[] {
@@ -476,6 +645,162 @@ export async function POST(req: NextRequest) {
       answer: repoMetaResult.answer,
       sources: repoMetaResult.sources,
       usedKnowledgeBase: repoMetaResult.usedKnowledgeBase,
+    });
+  }
+  // ────────────────────────────────────────────────────────────────
+
+  // ── Step 0.5: Wiki 知识层命中检测（仅 worldquant/WQ 概念）─────────
+  const wqConcept = detectWorldQuantConcept(question);
+  let wqSpaceId: number | null = null;
+  if (wqConcept.detected) {
+    console.log('[ai.ask] WQ concept detected:', wqConcept.concepts);
+    try {
+      wqSpaceId = getOrCreateSpace('worldquant');
+      const wikiHits = searchWikiPages(wqSpaceId, wqConcept.searchTerms);
+      console.log('[ai.ask] wikiHits count:', wikiHits.length);
+
+      if (wikiHits.length > 0) {
+        const top = wikiHits[0];
+        const page = db.select().from(wikiPages).where(eq(wikiPages.id, top.id)).get() as any;
+        if (page) {
+          return NextResponse.json({
+            configured: true,
+            answer: page.content,
+            sources: [{
+              docType: 'wiki_page',
+              docId: String(page.id),
+              title: page.title,
+              repoName: 'worldquant',
+              url: `/wiki?spaceId=${wqSpaceId}&pageId=${page.id}`,
+              excerpt: page.summary || String(page.content || '').slice(0, 200),
+              confidence: page.confidence,
+            }],
+            usedKnowledgeBase: true,
+            wikiHit: true,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[ai.ask] wiki detection failed:', err);
+    }
+  }
+  // ────────────────────────────────────────────────────────────────
+
+  // ── Step 1: Repo 关键词查询（repo 名 + 概念关键词）──────────────
+  // 例如 "worldquant里面什么是margin" → 限定 worldquant repo 搜索 margin
+  const repoKwQuery = detectRepoKeywordQuery(question);
+  if (repoKwQuery.detected && repoKwQuery.searchTerms.length > 0) {
+    console.log('[ai.ask] repoKeywordQuery detected:', {
+      repoName: repoKwQuery.repoName,
+      repoId: repoKwQuery.repoId,
+      keywords: repoKwQuery.keywords,
+      searchTerms: repoKwQuery.searchTerms,
+    });
+
+    // 即使 repo 不在数据库里，也不能走通用 FTS 伪装成知识库事实
+    if (!repoKwQuery.repoId) {
+      console.log('[ai.ask] repo not found in database, using fallback');
+    } else {
+      const repoScopedResults = rawSearchInRepo(repoKwQuery.repoId, repoKwQuery.searchTerms);
+      console.log('[ai.ask] repoScopedResults count:', repoScopedResults.length);
+
+      if (repoScopedResults.length > 0) {
+        // 命中：限定 repo 内有相关文档，走知识库回答
+        const scoredDocs = rerankAndSelect(repoScopedResults, question, repoKwQuery.repoName);
+        console.log('[ai.ask] repoScoped scoredDocs:', scoredDocs.map(s => ({ title: s.title.slice(0, 40), score: s.score })));
+
+        if (scoredDocs.length > 0) {
+          const { prompt, sources } = buildContextAndSources(scoredDocs);
+          const systemPrompt = `你是一个知识库问答助手。根据提供的「知识库上下文」回答用户问题。
+
+**回答规则：**
+1. 只基于 sources 中的内容回答，不要编造信息
+2. 如果 sources 和问题不完全匹配，明确说明"我没有找到精确匹配的内容，以下是相近的信息："
+3. 优先引用标题最相关的来源，在回答中说明来自哪个来源（如"根据《XXX》..."）
+4. 不要被不相关 sources 带偏，只使用与问题语义最相关的内容
+5. 用中文回答，条理清晰，适当分段
+
+**格式要求：**
+- 如果没有找到相关内容，直接说"我在知识库中没有找到相关内容"
+- 不要在找不到答案时说"根据我的知识"——你有且仅有知识库作为知识来源`;
+
+          const userPrompt = `${prompt}\n\n用户问题：${question}`;
+          let answer = '';
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 120000);
+            const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+            const data = await res.json();
+            answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
+          } catch (err: any) {
+            if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources, error: 'AI 请求超时（120s）' });
+            return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}` });
+          }
+          return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer });
+        }
+      }
+    }
+
+    // 未命中：repo 内没有相关文档（或 repo 不在数据库），明确告知用户
+    const kwList = repoKwQuery.keywords.join('、');
+    const repoName = repoKwQuery.repoName || '';
+    const fallbackSystemPrompt = `你是知识库问答助手。用户在 ${repoName} 知识库中查询「${kwList}」，但知识库中没有找到相关内容。
+
+**严格规则：**
+1. 必须先明确说明："我没有在 ${repoName} 知识库中找到 ${kwList} 的明确解释。"
+2. 如果你要基于通用知识补充说明，必须明确标注："以下为通用金融/技术概念，不一定适用于 ${repoName}（特别是 WorldQuant BRAIN 平台）。"
+3. 不要把标题写成 "${repoName} 中的 ${kwList}"——因为你并不知道 ${repoName} 中的具体定义
+4. 不要把通用解释包装成 ${repoName} 知识库中的事实
+5. 建议用户去 ${repoName} 仓库原文中搜索关键词确认`;
+
+    const fallbackUserPrompt = `用户问题：${question}\n\n注意：已在 ${repoName} 知识库中搜索 "${kwList}" 及其同义词，未找到匹配文档。`;
+
+    let fallbackAnswer = '';
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: fallbackSystemPrompt }, { role: 'user', content: fallbackUserPrompt }], temperature: 0.3 }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+      const data = await res.json();
+      fallbackAnswer = data.choices?.[0]?.message?.content || 'AI 返回为空';
+    } catch (err: any) {
+      if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: 'AI 请求超时（120s）' });
+      return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: `AI 请求失败: ${err.message}` });
+    }
+    // wiki + repo 均未命中，写入 wiki_error_book（仅 worldquant 概念查询）
+    if (wqConcept.detected) {
+      try {
+        const sid = wqSpaceId ?? getOrCreateSpace('worldquant');
+        recordWikiError({
+          spaceId: sid,
+          question,
+          failureType: 'wiki_miss_repo_miss',
+          missingConcept: kwList,
+          notes: `wiki_pages 中未找到，repo_documents 中也未找到 ${kwList}`,
+        });
+      } catch (e) { console.error('[ai.ask] recordWikiError failed:', e); }
+    }
+    return NextResponse.json({
+      configured: true,
+      sources: [],
+      usedKnowledgeBase: false,
+      answer: fallbackAnswer,
+      repoScopedMiss: true,
+      repoName,
+      keywords: repoKwQuery.keywords,
     });
   }
   // ────────────────────────────────────────────────────────────────

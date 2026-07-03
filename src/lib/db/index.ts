@@ -135,8 +135,53 @@ CREATE TABLE IF NOT EXISTS repo_documents (
   repo_id INTEGER NOT NULL REFERENCES repo_sources(id),
   file_path TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
+  rel_path TEXT NOT NULL DEFAULT '',
   content_hash TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
   excerpt TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS wiki_spaces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  source_type TEXT NOT NULL DEFAULT 'repo',
+  source_id INTEGER REFERENCES repo_sources(id),
+  description TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS wiki_pages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  space_id INTEGER NOT NULL REFERENCES wiki_spaces(id),
+  slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  aliases_json TEXT NOT NULL DEFAULT '[]',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  source_refs_json TEXT NOT NULL DEFAULT '[]',
+  confidence TEXT NOT NULL DEFAULT 'medium',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS wiki_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  space_id INTEGER NOT NULL REFERENCES wiki_spaces(id),
+  from_page_id INTEGER NOT NULL REFERENCES wiki_pages(id),
+  to_page_id INTEGER,
+  link_text TEXT NOT NULL DEFAULT '',
+  relation_type TEXT NOT NULL DEFAULT 'related',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS wiki_error_book (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  space_id INTEGER REFERENCES wiki_spaces(id),
+  question TEXT NOT NULL,
+  failure_type TEXT NOT NULL,
+  missing_concept TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  resolved INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
@@ -151,6 +196,11 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS idx_repo_documents_repo_updated ON repo_documents(repo_id, updated_at);`,
   // search_fts index
   `CREATE INDEX IF NOT EXISTS idx_search_fts_doc ON search_fts(doc_type, doc_id);`,
+  // wiki indexes
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_wiki_pages_space_slug ON wiki_pages(space_id, slug);`,
+  `CREATE INDEX IF NOT EXISTS idx_wiki_pages_space ON wiki_pages(space_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_wiki_links_from ON wiki_links(from_page_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_wiki_error_book_unresolved ON wiki_error_book(resolved, space_id);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);
