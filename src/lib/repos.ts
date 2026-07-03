@@ -198,6 +198,11 @@ async function gitCloneOrPull(
 const SKIP_DIRS = new Set([
   '.git', '.venv', '.deps', 'node_modules', '__pycache__',
   '.next', '.cache', 'dist', 'build', 'target', 'vendor', '.svn',
+  '.tox', '.eggs', '*.egg-info',
+  // also skip bare 'venv' directories (common in Python projects)
+  'venv', '.venv', 'ENV', 'env',
+  // skip Python package caches and site-packages
+  'site-packages', 'site_packages',
 ]);
 
 function scanMarkdownFiles(dir: string, files: string[] = []): string[] {
@@ -223,10 +228,33 @@ function computeHash(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
-function parseMarkdownTitle(_filePath: string, content: string): string {
-  const m = content.match(/^#\s+(.+)/m);
-  if (m) return m[1].trim();
-  return '';
+function extractTitle(content: string, relPath: string): string {
+  // Priority 1: first Markdown H1 (# title)
+  const h1Match = content.match(/^#\s+(.+)/m);
+  if (h1Match) return h1Match[1].trim();
+
+  // Priority 2: first H2 / H3 as fallback
+  const h2Match = content.match(/^#{2,3}\s+(.+)/m);
+  if (h2Match) return h2Match[1].trim();
+
+  // Priority 3: frontmatter title field (handles multi-line YAML frontmatter)
+  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (fmMatch) {
+    const fmBody = fmMatch[1];
+    const titleLine = fmBody.split('\n').find(l => l.trimStart().startsWith('title:'));
+    if (titleLine) {
+      const tv = titleLine.split('title:')[1].trim().replace(/^["']|["']$/g, '');
+      if (tv) return tv.trim();
+    }
+  }
+
+  // Priority 4: derive from filename (strip extension, split on separators)
+  const filename = relPath ? relPath.split('/').pop() || '' : '';
+  const basename = filename.replace(/\.[^.]+$/, ''); // strip extension
+  return basename
+    .replace(/[-_.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || '无标题';
 }
 
 function stripFrontmatter(content: string): string {
@@ -316,7 +344,7 @@ export async function syncRepo(
     let title = '';
     try {
       rawContent = fs.readFileSync(filePath, 'utf8');
-      title = parseMarkdownTitle(filePath, rawContent);
+      title = extractTitle(rawContent, relPath);
     } catch (_e) {}
     const cleanContent = stripFrontmatter(rawContent);
     const existingDoc = existingPaths.get(filePath);
