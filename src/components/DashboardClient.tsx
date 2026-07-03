@@ -137,6 +137,12 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
   const [aiResult, setAiResult] = useState<AskResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // AI 日报
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryMarkdown, setSummaryMarkdown] = useState<string | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [summaryCopied, setSummaryCopied] = useState(false);
+
   const hour = new Date().getHours();
   const greeting = getGreeting(hour);
 
@@ -205,6 +211,87 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
       handleAsk();
     }
   };
+
+  // 生成工作日报
+  const handleGenerateSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    setSummaryError(null);
+    setSummaryMarkdown(null);
+    setSummaryCopied(false);
+    try {
+      const res = await fetch('/api/ai/daily-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: todayDate }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.configured === false) {
+          setSummaryError(data.error || 'AI 未配置');
+        } else {
+          setSummaryError(data.error || `请求失败 (${res.status})`);
+        }
+        return;
+      }
+      if (data.markdown) {
+        setSummaryMarkdown(data.markdown);
+      } else {
+        setSummaryError('AI 返回为空');
+      }
+    } catch (err) {
+      setSummaryError(`网络错误: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [todayDate]);
+
+  // 复制 Markdown
+  const handleCopySummary = useCallback(async () => {
+    if (!summaryMarkdown) return;
+    try {
+      await navigator.clipboard.writeText(summaryMarkdown);
+      setSummaryCopied(true);
+      setTimeout(() => setSummaryCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }, [summaryMarkdown]);
+
+  // 追加到今日 Daily
+  const handleAppendToDaily = useCallback(async () => {
+    if (!summaryMarkdown) return;
+    try {
+      // 1. 获取当前 Daily 内容
+      const getRes = await fetch(`/api/daily/${todayDate}`);
+      if (!getRes.ok) {
+        setSummaryError('获取 Daily 失败');
+        return;
+      }
+      const dailyData = await getRes.json();
+      const currentContent = dailyData.content || '';
+
+      // 2. 追加 Markdown 草稿
+      const newContent = currentContent
+        ? `${currentContent}\n\n---\n\n${summaryMarkdown}`
+        : summaryMarkdown;
+
+      const putRes = await fetch(`/api/daily/${todayDate}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newContent }),
+      });
+
+      if (!putRes.ok) {
+        setSummaryError('追加 Daily 失败');
+        return;
+      }
+      setSummaryError(null);
+      setSummaryMarkdown(null);
+      alert('已追加到今日 Daily');
+    } catch (err) {
+      setSummaryError(`追加失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [summaryMarkdown, todayDate]);
 
   const quickCreateItems = [
     { href: '/notes/new', icon: '📝', label: '新建笔记' },
@@ -362,19 +449,19 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
                   )}
                 </div>
               )}
-              {/* AI 快捷按钮占位（Phase 4.3/4.4 实现） */}
+              {/* AI 快捷按钮 */}
               <div className="mt-3 pt-3 border-t border-slate-100 flex gap-2 flex-wrap">
                 <button
-                  disabled
-                  className="px-3 py-1.5 text-xs text-slate-400 border border-slate-200 rounded-lg cursor-not-allowed"
-                  title="后续阶段实现"
+                  onClick={handleGenerateSummary}
+                  disabled={summaryLoading}
+                  className="px-3 py-1.5 text-xs text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  📝 生成工作日报
+                  {summaryLoading ? '⏳ 生成中...' : '📝 生成工作日报'}
                 </button>
                 <button
                   disabled
                   className="px-3 py-1.5 text-xs text-slate-400 border border-slate-200 rounded-lg cursor-not-allowed"
-                  title="后续阶段实现"
+                  title="Phase 4.4 实现"
                 >
                   📋 生成今日计划
                 </button>
@@ -386,6 +473,52 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
                   📊 总结 GitHub 提交
                 </button>
               </div>
+
+              {/* 日报错误 */}
+              {summaryError && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  {summaryError}
+                </div>
+              )}
+
+              {/* 日报 loading */}
+              {summaryLoading && (
+                <div className="mt-3 p-3 text-sm text-slate-400 animate-pulse">
+                  正在收集今日数据并生成工作日报...
+                </div>
+              )}
+
+              {/* 日报结果 */}
+              {summaryMarkdown && !summaryLoading && (
+                <div className="mt-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-600">工作日报草稿</span>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={handleCopySummary}
+                        className="text-xs px-2 py-1 bg-white border border-slate-200 rounded hover:bg-slate-50"
+                      >
+                        {summaryCopied ? '✓ 已复制' : '复制'}
+                      </button>
+                      <button
+                        onClick={handleAppendToDaily}
+                        className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        追加到 Daily
+                      </button>
+                      <button
+                        onClick={() => { setSummaryMarkdown(null); setSummaryError(null); }}
+                        className="text-xs px-2 py-1 bg-white border border-slate-200 rounded hover:bg-slate-50"
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="p-3 text-xs text-slate-700 whitespace-pre-wrap font-mono max-h-96 overflow-y-auto">
+{summaryMarkdown}
+                  </pre>
+                </div>
+              )}
             </div>
           </section>
 
