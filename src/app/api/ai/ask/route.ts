@@ -632,6 +632,199 @@ function handleRepoMetaQuery(question: string): { answer: string; sources: any[]
   return { answer, sources, usedKnowledgeBase: true };
 }
 
+// ─── Step 0 NEW: Global Wiki Concept Exact Match ─────────────────────────────────
+
+interface GlobalWikiMatch {
+  page: any;       // wiki_pages row
+  spaceId: number;
+  spaceName: string;
+  matchedTerm: string;   // the term that matched
+}
+
+// WQ concept alias map: normalized form → canonical slug
+// Handles: "self-correlation" / "self correlation" / "selfcorrelation" → "self-correlation"
+const WQ_CONCEPT_ALIAS: Record<string, string> = {
+  // aliases → canonical slug
+  'fitness': 'fitness',
+  'selfcorrelation': 'self-correlation',
+  'self-correlation': 'self-correlation',
+  'self correlation': 'self-correlation',
+  'sharpe': 'sharpe',
+  'sharpe ratio': 'sharpe',
+  'turnover': 'turnover',
+  'returns': 'returns',
+  'margin': 'margin',
+  'drawdown': 'drawdown',
+  'delay': 'delay',
+  'decay': 'decay',
+  'neutralization': 'neutralization',
+  'truncation': 'truncation',
+  'pasteurization': 'pasteurization',
+  'universe': 'universe',
+  'region': 'region',
+  'submission': 'submission',
+  'simulation': 'simulation',
+  'correlation': 'correlation',
+  'alpha': 'alpha',
+  'beta': 'beta',
+  'volatility': 'volatility',
+  'exposure': 'exposure',
+  'leverage': 'leverage',
+};
+
+/**
+ * Normalize a search token:
+ * - lowercase
+ * - strip Chinese/English punctuation and spaces
+ */
+function normalizeTerm(term: string): string {
+  return term
+    .toLowerCase()
+    .replace(/[？\?。，、！？．。，\.,!！\?\[\]\(\)\-'\"''""【】]/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+/**
+ * Extract all meaningful English tokens from a question.
+ * Returns lowercase tokens to normalize mixed-case input like "Fitness".
+ */
+function extractEnglishTokens(question: string): string[] {
+  const tokens: string[] = [];
+  // Match English words (including capitalized ones like "Fitness")
+  const englishPattern = /[a-zA-Z][a-zA-Z0-9-]{2,}/g;
+  let match;
+  while ((match = englishPattern.exec(question)) !== null) {
+    const t = match[0].toLowerCase();
+    if (!['the', 'and', 'for', 'with', 'what', 'how', 'when', 'where', 'why', 'which', 'from', 'that', 'this', 'are', 'you', 'your'].includes(t)) {
+      tokens.push(t);
+    }
+  }
+  return [...new Set(tokens)];
+}
+
+/**
+ * Attempt to match a question against all wiki pages globally.
+ * Does NOT require repo name in the question.
+ *
+ * Returns a GlobalWikiMatch if a unique best match is found, null otherwise.
+ */
+function matchGlobalWikiConcept(question: string): GlobalWikiMatch | null {
+  try {
+    const spaceRows = db.select({ id: wikiSpaces.id, name: wikiSpaces.name }).from(wikiSpaces).all() as any[];
+    const spaceMap = new Map<number, string>();
+    for (const s of spaceRows) spaceMap.set(s.id, s.name);
+
+    // Get all wiki pages across all spaces (use raw sqlite for reliability)
+    const rawSqlite: any = sqlite;
+    const allPages = rawSqlite
+      .prepare(`SELECT wp.id, wp.space_id, wp.title, wp.slug, wp.content, wp.confidence
+                FROM wiki_pages wp
+                ORDER BY wp.confidence DESC, wp.id ASC`)
+      .all() as any[];
+
+    // Build lookup maps: title-lowercase → page, slug-lowercase → page
+    const byTitle = new Map<string, any>();
+    const bySlug = new Map<string, any>();
+    const candidates: any[] = [];
+
+    for (const page of allPages) {
+      const titleKey = (page.title || '').toLowerCase();
+      const slugKey = (page.slug || '').toLowerCase();
+      if (titleKey) byTitle.set(titleKey, page);
+      if (slugKey && slugKey !== titleKey) bySlug.set(slugKey, page);
+      candidates.push({ page, titleKey, slugKey });
+    }
+
+    // 1. Try direct slug match from alias map
+    const englishTokens = extractEnglishTokens(question);
+    for (const token of englishTokens) {
+      const norm = normalizeTerm(token);
+      // Check alias map first
+      const canonicalSlug = WQ_CONCEPT_ALIAS[norm] || WQ_CONCEPT_ALIAS[token] || WQ_CONCEPT_ALIAS[norm.replace(/-/g, '')];
+      if (canonicalSlug && bySlug.has(canonicalSlug)) {
+        const page = bySlug.get(canonicalSlug)!;
+        return {
+          page,
+          spaceId: page.space_id,
+          spaceName: spaceMap.get(page.space_id) || '',
+          matchedTerm: token,
+        };
+      }
+      // Direct slug match (handles "fitness", "sharpe", etc.)
+      if (bySlug.has(norm)) {
+        const page = bySlug.get(norm)!;
+        return {
+          page,
+          spaceId: page.space_id,
+          spaceName: spaceMap.get(page.space_id) || '',
+          matchedTerm: token,
+        };
+      }
+    }
+
+    // 2. Try normalized title match for each extracted token
+    for (const token of englishTokens) {
+      const norm = normalizeTerm(token);
+      if (byTitle.has(norm)) {
+        const page = byTitle.get(norm)!;
+        return {
+          page,
+          spaceId: page.space_id,
+          spaceName: spaceMap.get(page.space_id) || '',
+          matchedTerm: token,
+        };
+      }
+      // Also try without hyphens for title match
+      const normNoHyphen = norm.replace(/-/g, '');
+      for (const [titleKey, page] of byTitle) {
+        if (titleKey === normNoHyphen || titleKey.replace(/-/g, '') === normNoHyphen) {
+          return {
+            page,
+            spaceId: page.space_id,
+            spaceName: spaceMap.get(page.space_id) || '',
+            matchedTerm: token,
+          };
+        }
+      }
+    }
+
+    // 3. Try extracting a "word phrase" from the question:
+    // Match sequences like "word" or "word-word" that appear as-is in slug
+    const slugPattern = /[a-z][a-z0-9-]{2,}/g;
+    let slugMatch;
+    while ((slugMatch = slugPattern.exec(question)) !== null) {
+      const phrase = slugMatch[0];
+      const normPhrase = normalizeTerm(phrase);
+      // Check alias map
+      const canonicalSlug = WQ_CONCEPT_ALIAS[normPhrase];
+      if (canonicalSlug && bySlug.has(canonicalSlug)) {
+        const page = bySlug.get(canonicalSlug)!;
+        return {
+          page,
+          spaceId: page.space_id,
+          spaceName: spaceMap.get(page.space_id) || '',
+          matchedTerm: phrase,
+        };
+      }
+      if (bySlug.has(normPhrase)) {
+        const page = bySlug.get(normPhrase)!;
+        return {
+          page,
+          spaceId: page.space_id,
+          spaceName: spaceMap.get(page.space_id) || '',
+          matchedTerm: phrase,
+        };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.error('[ai.ask] matchGlobalWikiConcept error:', err);
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   let question = '';
   try {
@@ -662,6 +855,31 @@ export async function POST(req: NextRequest) {
   }
   // ────────────────────────────────────────────────────────────────
 
+  // ── Step 0 NEW: 全局 Wiki 精确命中（不依赖 repoName）──────────────
+  {
+    const route = matchGlobalWikiConcept(question);
+    if (route) {
+      console.log('[ai.ask] wiki_exact matched:', route.matchedTerm, '→ pageId:', route.page.id);
+      return NextResponse.json({
+        configured: true,
+        answer: route.page.content,
+        sources: [{
+          docType: 'wiki_page',
+          docId: String(route.page.id),
+          title: route.page.title,
+          repoName: route.spaceName,
+          url: `/wiki?spaceId=${route.spaceId}&pageId=${route.page.id}`,
+          excerpt: String(route.page.content || '').slice(0, 300),
+          confidence: route.page.confidence || 'high',
+        }],
+        usedKnowledgeBase: true,
+        route: 'wiki_exact',
+        matchedTerm: route.matchedTerm,
+      });
+    }
+  }
+  // ────────────────────────────────────────────────────────────────
+
   // ── Step 0.5: Wiki 知识层命中检测（仅 worldquant/WQ 概念）─────────
   const wqConcept = detectWorldQuantConcept(question);
   let wqSpaceId: number | null = null;
@@ -689,6 +907,7 @@ export async function POST(req: NextRequest) {
               confidence: page.confidence,
             }],
             usedKnowledgeBase: true,
+            route: 'wiki_search',
             wikiHit: true,
           });
         }
@@ -866,6 +1085,7 @@ ${contextParts.join('\n\n')}
         sources,
         usedKnowledgeBase: true,
         answer,
+        route: 'project_brain',
         projectBrainHit: true,
         repoName: projectHit.repoName,
       });
@@ -930,7 +1150,7 @@ ${contextParts.join('\n\n')}
             if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources, error: 'AI 请求超时（120s）' });
             return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}` });
           }
-          return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer });
+          return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer, route: 'repo_search' });
         }
       }
     }
@@ -992,11 +1212,11 @@ ${contextParts.join('\n\n')}
       if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: 'AI 请求超时（120s）' });
       return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: `AI 请求失败: ${err.message}` });
     }
-    return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer });
+    return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer, route: 'fallback' });
   }
 
   const { prompt, sources } = buildContextAndSources(scoredDocs);
-  console.log('[ai.ask] final sources count:', sources.length);
+    console.log('[ai.ask] final sources count:', sources.length);
 
   const systemPrompt = `你是一个知识库问答助手。根据提供的「知识库上下文」回答用户问题。
 
@@ -1029,5 +1249,5 @@ ${contextParts.join('\n\n')}
     return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}` });
   }
 
-  return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer });
+  return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer, route: 'repo_search' });
 }
