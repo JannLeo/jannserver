@@ -1,16 +1,16 @@
 import { db, initDb } from '@/lib/db/index';
 import { notes, tasks, memos, repoSources, repoDocuments } from '@/lib/db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
-import { format } from 'date-fns';
 import NavBar from '@/components/NavBar';
 import DashboardClient from '@/components/DashboardClient';
+import { getRepoActivity, getTodayLocalDate } from '@/lib/activity';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   initDb();
 
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = getTodayLocalDate();
 
   // 今日任务：scheduled_date = today 或 status = 'todo' 且未安排
   const todayTasks = db.select({
@@ -78,10 +78,19 @@ export default async function DashboardPage() {
     repos: repoStats,
   };
 
+  // GitHub 今日提交活动（失败不阻塞 Dashboard）
+  let activity: { repos: any[]; totalCommits: number } = { repos: [], totalCommits: 0 };
+  try {
+    const a = await getRepoActivity(today);
+    activity = { repos: a.repos, totalCommits: a.totalCommits };
+  } catch {
+    // keep empty default
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <NavBar title="个人工作台" />
-      <DashboardClient data={data} />
+      <DashboardClient data={data} activity={activity} />
     </div>
   );
 }

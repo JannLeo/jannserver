@@ -33,6 +33,27 @@ interface RepoStat {
   documentCount: number;
 }
 
+interface CommitInfo {
+  hash: string;
+  shortHash: string;
+  author: string;
+  date: string;
+  message: string;
+  changedFiles: string[];
+  changedFileCount: number;
+}
+
+interface RepoActivity {
+  repoId: number;
+  repoName: string;
+  commits: CommitInfo[];
+}
+
+interface ActivityData {
+  repos: RepoActivity[];
+  totalCommits: number;
+}
+
 interface DashboardData {
   todayDate: string;
   todayTasks: Task[];
@@ -105,8 +126,9 @@ function TaskItem({ task, onToggle, toggling }: {
   );
 }
 
-export default function DashboardClient({ data }: { data: DashboardData }) {
+export default function DashboardClient({ data, activity }: { data: DashboardData; activity: ActivityData }) {
   const { todayDate, undoneTasks, recentNotes, recentMemos, repos } = data;
+  const { repos: activityRepos, totalCommits: totalCommitsToday } = activity;
   const [tasks, setTasks] = useState<Task[]>(data.todayTasks);
   const [toggling, setToggling] = useState<string | null>(null);
 
@@ -211,6 +233,9 @@ export default function DashboardClient({ data }: { data: DashboardData }) {
                 <>，<span className="font-semibold text-green-600">{todayCompleted}</span> 个已完成</>
               )}
               {todayTodo === 0 && todayCompleted === 0 && <>，暂无任务</>}
+              {totalCommitsToday > 0 && (
+                <>，GitHub 有 <span className="font-semibold text-indigo-600">{totalCommitsToday}</span> 次提交</>
+              )}
               。
             </p>
           </div>
@@ -444,6 +469,49 @@ export default function DashboardClient({ data }: { data: DashboardData }) {
                       <div className="text-xs text-slate-400 mt-1">同步: {formatSyncTime(r.lastSyncAt)}</div>
                     </Link>
                   ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* GitHub 今日活动 */}
+          <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="font-semibold text-slate-800">📊 今日提交</h2>
+              <span className="text-xs text-slate-500 whitespace-nowrap">
+                {totalCommitsToday > 0 ? `${totalCommitsToday} 次` : '无'}
+              </span>
+            </div>
+            <div className="p-5">
+              {totalCommitsToday === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-4">今日暂无提交</p>
+              ) : (
+                <div className="space-y-3">
+                  {/* 每个 repo 的提交数 */}
+                  <div className="flex flex-wrap gap-2">
+                    {activityRepos.map(r => (
+                      <Link
+                        key={r.repoId}
+                        href={`/repos?repoId=${r.repoId}`}
+                        className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded border border-indigo-200 hover:bg-indigo-100 transition"
+                      >
+                        {r.repoName}: {r.commits.length}
+                      </Link>
+                    ))}
+                  </div>
+                  {/* 最近 5 条 commit */}
+                  <div className="space-y-1.5">
+                    {activityRepos
+                      .flatMap(r => r.commits.map(c => ({ ...c, repoName: r.repoName, repoId: r.repoId })))
+                      .slice(0, 5)
+                      .map((c, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className="font-mono text-indigo-600 flex-shrink-0">{c.shortHash}</span>
+                          <span className="text-slate-600 flex-1 truncate">{c.message}</span>
+                          <span className="text-slate-400 whitespace-nowrap flex-shrink-0">{c.repoName}</span>
+                        </div>
+                      ))}
+                  </div>
                 </div>
               )}
             </div>

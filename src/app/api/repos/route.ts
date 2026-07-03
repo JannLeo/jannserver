@@ -7,8 +7,7 @@ import {
   validateLocalPath,
 } from '@/lib/repos';
 import path from 'path';
-
-const REPOS_BASE_DIR = '/data/repos';
+import { REPOS_BASE_DIR } from '@/lib/paths';
 
 // GET /api/repos
 export async function GET() {

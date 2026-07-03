@@ -15,8 +15,9 @@ const docT = repoDocuments as any;
 const path = nodePath;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-// For production server: hardcoded absolute path (process.cwd() unreliable in Next.js)
-const REPOS_BASE_DIR = '/home/sz/workspace/data/repos';
+// All data/repo paths are derived from environment variables via lib/paths.ts.
+// This avoids hardcoding machine-specific absolute paths.
+import { REPOS_BASE_DIR, isPathUnderReposBase } from './paths';
 
 const ALLOWED_REPOS_PREFIX = 'https://github.com/JannLeo/';
 
@@ -35,13 +36,7 @@ export function validateRepoUrl(url: string): boolean {
 }
 
 export function validateLocalPath(localPath: string): boolean {
-  const abs = path.resolve(localPath);
-  // Accept paths under workspace or /data/repos/ (broader than just data/repos)
-  // This allows /home/sz/summary-for-work, /home/sz/workspace/data/repos/, /data/repos/
-  return (
-    abs.startsWith('/home/sz/workspace/') ||
-    abs.startsWith('/data/repos/')
-  ) && !abs.includes('..');
+  return isPathUnderReposBase(localPath);
 }
 
 // ─── Repo CRUD ─────────────────────────────────────────────────────────────────
