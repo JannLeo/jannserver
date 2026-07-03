@@ -89,7 +89,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar title="个人工作台" />
+      <NavBar />
       <DashboardClient data={data} activity={activity} />
     </div>
   );
