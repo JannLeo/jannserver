@@ -110,6 +110,29 @@ function pageTypeBadgeClass(pt: string): string {
   return 'bg-gray-50 text-gray-700 border-gray-200';
 }
 
+/**
+ * 客户端镜像的 Project Brain profile（与服务端 REPO_PROFILES 保持一致）。
+ * 用于决定 Project Brain 操作区显示哪些编译按钮。
+ * 不改 API/DB，纯前端渲染控制。
+ */
+const CLIENT_REPO_PROFILES: Record<string, { profile: string; allowedModes: string[] }> = {
+  'summary-for-work': { profile: 'docs', allowedModes: ['overview', 'commits'] },
+  'worldquant': { profile: 'mixed', allowedModes: ['overview', 'modules', 'commits'] },
+  'teach': { profile: 'code', allowedModes: ['overview', 'modules', 'configs', 'commits'] },
+};
+const DEFAULT_CLIENT_PROFILE = { profile: 'code', allowedModes: ['overview', 'modules', 'configs', 'commits'] };
+
+function getClientProfile(repoName: string) {
+  return CLIENT_REPO_PROFILES[repoName] || DEFAULT_CLIENT_PROFILE;
+}
+
+/** Project Brain 操作按钮统一样式：running 当前步骤=黄色，其它步骤禁用=灰色，空闲=白底 */
+function brainBtnClass(running: string | null, current: string): string {
+  if (running === current) return 'text-xs px-2 py-1 rounded border bg-yellow-100 border-yellow-300 text-yellow-700';
+  if (running !== null) return 'text-xs px-2 py-1 rounded border bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed';
+  return 'text-xs px-2 py-1 rounded border bg-white border-slate-200 text-slate-600 hover:border-emerald-300 hover:text-emerald-600';
+}
+
 export default function WikiPage() {
   const [spaces, setSpaces] = useState<WikiSpace[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<WikiSpace | null>(null);
@@ -125,6 +148,16 @@ export default function WikiPage() {
   const [compileAllRunning, setCompileAllRunning] = useState(false);
   const [compileLog, setCompileLog] = useState<string[]>([]);
   const compileLogRef = useRef<HTMLDivElement>(null);
+
+  // Project Brain 构建状态
+  // brainRunning: null=空闲, 'scan'/'compile:overview'/.../'ontology'/'all'=当前正在执行的步骤
+  const [brainRunning, setBrainRunning] = useState<string | null>(null);
+  const [brainStatus, setBrainStatus] = useState<{
+    codeFileCount?: number;
+    symbolCount?: number;
+    lastScanAt?: string | null;
+    wikiPages?: Array<{ id: number; slug: string; title: string; pageType: string; confidence: string; updatedAt: string }>;
+  } | null>(null);
 
   const searchQRef = useRef('');
   const [searchInput, setSearchInput] = useState('');
@@ -173,7 +206,36 @@ export default function WikiPage() {
     setSearchInput('');
     searchQRef.current = '';
     setSelectedPage(null);
+    // 项目 space：拉取 Project Brain 状态
+    if (selectedSpace.sourceType === 'project') {
+      fetchBrainStatus(selectedSpace.name);
+    } else {
+      setBrainStatus(null);
+    }
   }, [selectedSpace]);
+
+  const fetchBrainStatus = async (repoName: string) => {
+    try {
+      const res = await fetch(`/api/project-brain/status?repoName=${encodeURIComponent(repoName)}`);
+      if (!res.ok) {
+        setBrainStatus(null);
+        return;
+      }
+      const data = await res.json();
+      if (data.ok) {
+        setBrainStatus({
+          codeFileCount: data.codeFileCount,
+          symbolCount: data.symbolCount,
+          lastScanAt: data.lastScanAt,
+          wikiPages: data.wikiPages,
+        });
+      } else {
+        setBrainStatus(null);
+      }
+    } catch {
+      setBrainStatus(null);
+    }
+  };
 
   // 4. 搜索防抖
   useEffect(() => {
@@ -329,6 +391,134 @@ export default function WikiPage() {
     setCompileLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
 
+  // ─── Project Brain 操作（静默执行，不管理 brainRunning） ────────────────────
+
+  const runScan = async (repoName: string): Promise<void> => {
+    appendLog(`▶ 扫描代码文件 ...`);
+    try {
+      const res = await fetch('/api/project-brain/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoName }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        appendLog(
+          `  ✓ scanned=${data.scanned} inserted=${data.inserted} updated=${data.updated} skipped=${data.skipped} skippedLargeFiles=${data.skippedLargeFiles} skippedByExcludePaths=${data.skippedByExcludePaths ?? 0} removed=${data.removed}`
+        );
+      } else {
+        appendLog(`  ✗ scan 失败: ${data.error || data.reason || '未知错误'}`);
+      }
+    } catch (e: any) {
+      appendLog(`  ✗ scan 请求失败: ${e.message}`);
+    }
+  };
+
+  const runCompileMode = async (repoName: string, mode: string): Promise<void> => {
+    appendLog(`▶ 编译 ${mode} ...`);
+    try {
+      const res = await fetch('/api/project-brain/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoName, mode }),
+      });
+      const data = await res.json();
+      if (!data.configured) {
+        appendLog(`  ✗ AI 未配置，跳过 ${mode}`);
+      } else if (data.ok) {
+        if (data.alreadyExists) {
+          appendLog(`  ✓ ${mode} 已存在 (confidence=${data.confidence})，跳过`);
+        } else {
+          appendLog(`  ✓ ${mode} 成功 pageId=${data.pageId} confidence=${data.confidence} sources=${data.sourceCount}`);
+        }
+      } else {
+        appendLog(`  ✗ ${mode} 失败: ${data.error || data.reason || '未知错误'}`);
+      }
+    } catch (e: any) {
+      appendLog(`  ✗ ${mode} 请求失败: ${e.message}`);
+    }
+  };
+
+  const runOntology = async (repoName: string): Promise<void> => {
+    appendLog(`▶ 构建 Ontology ...`);
+    try {
+      const res = await fetch('/api/project-brain/ontology', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoName }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        appendLog(`  ✓ entities=${data.entityCount} relations=${data.relationCount}`);
+      } else {
+        appendLog(`  ✗ ontology 失败: ${data.error || data.reason || '未知错误'}`);
+      }
+    } catch (e: any) {
+      appendLog(`  ✗ ontology 请求失败: ${e.message}`);
+    }
+  };
+
+  // ─── Project Brain 按钮处理器（管理 brainRunning + 刷新状态） ────────────────
+
+  const refreshBrain = async (repoName: string, spaceId: number) => {
+    await fetchBrainStatus(repoName);
+    await fetchPages(spaceId, searchQRef.current);
+  };
+
+  const handleBrainScan = async () => {
+    if (brainRunning) return;
+    if (!selectedSpace || selectedSpace.sourceType !== 'project') return;
+    const repoName = selectedSpace.name;
+    setBrainRunning('scan');
+    await runScan(repoName);
+    setBrainRunning(null);
+    await refreshBrain(repoName, selectedSpace.id);
+  };
+
+  const handleBrainCompileMode = async (mode: string) => {
+    if (brainRunning) return;
+    if (!selectedSpace || selectedSpace.sourceType !== 'project') return;
+    const repoName = selectedSpace.name;
+    setBrainRunning(`compile:${mode}`);
+    await runCompileMode(repoName, mode);
+    setBrainRunning(null);
+    await refreshBrain(repoName, selectedSpace.id);
+  };
+
+  const handleBrainOntology = async () => {
+    if (brainRunning) return;
+    if (!selectedSpace || selectedSpace.sourceType !== 'project') return;
+    const repoName = selectedSpace.name;
+    setBrainRunning('ontology');
+    await runOntology(repoName);
+    setBrainRunning(null);
+    await refreshBrain(repoName, selectedSpace.id);
+  };
+
+  /**
+   * 一键构建 Project Brain（profile-aware）：
+   *   1. scan
+   *   2. compile 每个 profile.allowedModes
+   *   3. ontology
+   * docs profile 只跑 overview + commits；code profile 跑全部 4 个模式。
+   */
+  const handleBrainBuildAll = async () => {
+    if (brainRunning) return;
+    if (!selectedSpace || selectedSpace.sourceType !== 'project') return;
+    const repoName = selectedSpace.name;
+    const profile = getClientProfile(repoName);
+    setBrainRunning('all');
+    appendLog(`=== 一键构建 Project Brain: ${repoName} (profile=${profile.profile}) ===`);
+    await runScan(repoName);
+    for (const mode of profile.allowedModes) {
+      await runCompileMode(repoName, mode);
+    }
+    await runOntology(repoName);
+    await refreshBrain(repoName, selectedSpace.id);
+    appendLog(`=== Project Brain 构建完成 ===`);
+    setBrainRunning(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <NavBar title="📚 LLM-Wiki 知识层" />
@@ -392,38 +582,123 @@ export default function WikiPage() {
         <div className="w-80 border-r border-slate-200 bg-white overflow-y-auto flex flex-col">
           {/* Compile area */}
           <div className="p-3 border-b border-slate-200 bg-slate-50">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-600">概念编译</h3>
-              <button
-                onClick={handleCompileAll}
-                disabled={compileAllRunning || !selectedSpace}
-                className={`text-xs px-2 py-1 rounded ${
-                  compileAllRunning || !selectedSpace
-                    ? 'bg-slate-200 text-slate-400'
-                    : 'bg-blue-500 text-white hover:bg-blue-600'
-                }`}
-              >
-                {compileAllRunning ? '编译中...' : '编译全部缺失'}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {WQ_CONCEPTS_FOR_COMPILE.map((c) => (
-                <button
-                  key={c.slug}
-                  onClick={() => handleCompileConcept(c.slug)}
-                  disabled={compilingSlug !== null || !selectedSpace}
-                  className={`text-xs px-2 py-1 rounded border transition ${
-                    compilingSlug === c.slug
-                      ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
-                      : compilingSlug !== null || !selectedSpace
-                      ? 'bg-slate-100 border-slate-200 text-slate-400'
-                      : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
-                  }`}
-                >
-                  {compilingSlug === c.slug ? '⏳' : ''} {c.title}
-                </button>
-              ))}
-            </div>
+            {selectedSpace?.sourceType === 'repo' ? (
+              /* Concept Space: 概念编译按钮 */
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-slate-600">概念编译</h3>
+                  <button
+                    onClick={handleCompileAll}
+                    disabled={compileAllRunning || !selectedSpace}
+                    className={`text-xs px-2 py-1 rounded ${
+                      compileAllRunning || !selectedSpace
+                        ? 'bg-slate-200 text-slate-400'
+                        : 'bg-blue-500 text-white hover:bg-blue-600'
+                    }`}
+                  >
+                    {compileAllRunning ? '编译中...' : '编译全部缺失'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {WQ_CONCEPTS_FOR_COMPILE.map((c) => (
+                    <button
+                      key={c.slug}
+                      onClick={() => handleCompileConcept(c.slug)}
+                      disabled={compilingSlug !== null || !selectedSpace}
+                      className={`text-xs px-2 py-1 rounded border transition ${
+                        compilingSlug === c.slug
+                          ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
+                          : compilingSlug !== null || !selectedSpace
+                          ? 'bg-slate-100 border-slate-200 text-slate-400'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
+                      }`}
+                    >
+                      {compilingSlug === c.slug ? '⏳' : ''} {c.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : selectedSpace?.sourceType === 'project' ? (
+              /* Project Space: Project Brain 操作区（按钮按 profile.allowedModes 显示） */
+              (() => {
+                const profile = getClientProfile(selectedSpace.name);
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-semibold text-slate-600">
+                        Project Brain <span className="text-slate-400 font-normal">({profile.profile})</span>
+                      </h3>
+                    </div>
+                    {/* 操作按钮 */}
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      <button onClick={handleBrainScan} disabled={brainRunning !== null} className={brainBtnClass(brainRunning, 'scan')}>
+                        {brainRunning === 'scan' ? '⏳ ' : ''}扫描代码
+                      </button>
+                      {profile.allowedModes.includes('overview') && (
+                        <button onClick={() => handleBrainCompileMode('overview')} disabled={brainRunning !== null} className={brainBtnClass(brainRunning, 'compile:overview')}>
+                          {brainRunning === 'compile:overview' ? '⏳ ' : ''}编译 Overview
+                        </button>
+                      )}
+                      {profile.allowedModes.includes('modules') && (
+                        <button onClick={() => handleBrainCompileMode('modules')} disabled={brainRunning !== null} className={brainBtnClass(brainRunning, 'compile:modules')}>
+                          {brainRunning === 'compile:modules' ? '⏳ ' : ''}编译 Modules
+                        </button>
+                      )}
+                      {profile.allowedModes.includes('configs') && (
+                        <button onClick={() => handleBrainCompileMode('configs')} disabled={brainRunning !== null} className={brainBtnClass(brainRunning, 'compile:configs')}>
+                          {brainRunning === 'compile:configs' ? '⏳ ' : ''}编译 Configs
+                        </button>
+                      )}
+                      {profile.allowedModes.includes('commits') && (
+                        <button onClick={() => handleBrainCompileMode('commits')} disabled={brainRunning !== null} className={brainBtnClass(brainRunning, 'compile:commits')}>
+                          {brainRunning === 'compile:commits' ? '⏳ ' : ''}编译 Commits
+                        </button>
+                      )}
+                      <button onClick={handleBrainOntology} disabled={brainRunning !== null} className={brainBtnClass(brainRunning, 'ontology')}>
+                        {brainRunning === 'ontology' ? '⏳ ' : ''}构建 Ontology
+                      </button>
+                      <button
+                        onClick={handleBrainBuildAll}
+                        disabled={brainRunning !== null}
+                        className={`text-xs px-2 py-1 rounded ${
+                          brainRunning === 'all'
+                            ? 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                            : brainRunning !== null
+                            ? 'bg-slate-200 text-slate-400'
+                            : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                        }`}
+                      >
+                        {brainRunning === 'all' ? '构建中...' : '一键构建 Project Brain'}
+                      </button>
+                    </div>
+                    {/* 状态摘要 */}
+                    {brainStatus && (
+                      <div className="text-xs text-slate-500 space-y-0.5">
+                        <div>代码文件: {brainStatus.codeFileCount ?? 0}</div>
+                        <div>符号: {brainStatus.symbolCount ?? 0}</div>
+                        <div>Wiki 页: {brainStatus.wikiPages?.length ?? 0}</div>
+                        <div>上次扫描: {brainStatus.lastScanAt ? formatDate(brainStatus.lastScanAt) : '-'}</div>
+                      </div>
+                    )}
+                    {brainStatus && brainStatus.wikiPages && brainStatus.wikiPages.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {brainStatus.wikiPages.map((p) => (
+                          <span
+                            key={p.id}
+                            className={`text-xs px-1.5 py-0.5 rounded border ${pageTypeBadgeClass(p.pageType)}`}
+                            title={p.title}
+                          >
+                            {PAGE_TYPE_LABELS[p.pageType] || p.pageType}: {p.confidence}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            ) : (
+              <p className="text-xs text-slate-400">请先选择一个 space</p>
+            )}
             {compileLog.length > 0 && (
               <div
                 ref={compileLogRef}
