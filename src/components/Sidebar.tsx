@@ -41,6 +41,7 @@ const navItems: [string, string, string, string][] = [
   ['/code', '📦', '代码', '项目代码浏览'],
   ['/usage', '💳', '用量', 'AI 使用情况'],
   ['/ask', '🤖', 'AI 问答', 'AI 知识库问答'],
+  ['/video-analysis', '🎬', '视频分析', '视频分析工作台'],
 ];
 
 export default function Sidebar() {

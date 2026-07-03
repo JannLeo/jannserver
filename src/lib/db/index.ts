@@ -229,6 +229,44 @@ CREATE TABLE IF NOT EXISTS ontology_relations (
   to_entity_id INTEGER NOT NULL REFERENCES ontology_entities(id),
   confidence TEXT NOT NULL DEFAULT 'medium',
   source_refs_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS video_analysis_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform TEXT NOT NULL,
+  crawl_type TEXT NOT NULL DEFAULT 'search',
+  keyword TEXT NOT NULL DEFAULT '',
+  target_url TEXT NOT NULL DEFAULT '',
+  target_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  progress INTEGER NOT NULL DEFAULT 0,
+  message TEXT NOT NULL DEFAULT '',
+  result_count INTEGER NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS video_analysis_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL REFERENCES video_analysis_jobs(id),
+  platform TEXT NOT NULL DEFAULT '',
+  item_type TEXT NOT NULL DEFAULT 'video',
+  source_id TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  author_name TEXT NOT NULL DEFAULT '',
+  publish_time TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS video_analysis_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL REFERENCES video_analysis_jobs(id),
+  title TEXT NOT NULL DEFAULT '',
+  markdown TEXT NOT NULL DEFAULT '',
+  sources_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -262,6 +300,9 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS idx_ontology_relations_from ON ontology_relations(from_entity_id);`,
   `CREATE INDEX IF NOT EXISTS idx_ontology_relations_to ON ontology_relations(to_entity_id);`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ontology_relations_triple ON ontology_relations(from_entity_id, relation_type, to_entity_id);`,
+  // video_analysis indexes
+  `CREATE INDEX IF NOT EXISTS idx_va_items_job ON video_analysis_items(job_id);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_va_reports_job ON video_analysis_reports(job_id);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);

@@ -237,3 +237,46 @@ export const ontologyRelations = sqliteTable("ontology_relations", {
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── Video Analysis ───────────────────────────────────────────────────────────
+export const videoAnalysisJobs = sqliteTable("video_analysis_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  platform: text("platform").notNull(),
+  crawlType: text("crawl_type").notNull().default("search"),
+  keyword: text("keyword").notNull().default(""),
+  targetUrl: text("target_url").notNull().default(""),
+  targetId: text("target_id").notNull().default(""),
+  status: text("status").notNull().default("pending"),
+  progress: integer("progress").notNull().default(0),
+  message: text("message").notNull().default(""),
+  resultCount: integer("result_count").notNull().default(0),
+  error: text("error").notNull().default(""),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  finishedAt: text("finished_at"),
+});
+
+export const videoAnalysisItems = sqliteTable("video_analysis_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jobId: integer("job_id").notNull().references(() => videoAnalysisJobs.id),
+  platform: text("platform").notNull().default(""),
+  itemType: text("item_type").notNull().default("video"),
+  sourceId: text("source_id").notNull().default(""),
+  title: text("title").notNull().default(""),
+  authorName: text("author_name").notNull().default(""),
+  publishTime: text("publish_time").notNull().default(""),
+  url: text("url").notNull().default(""),
+  content: text("content").notNull().default(""),
+  rawJson: text("raw_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const videoAnalysisReports = sqliteTable("video_analysis_reports", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jobId: integer("job_id").notNull().references(() => videoAnalysisJobs.id),
+  title: text("title").notNull().default(""),
+  markdown: text("markdown").notNull().default(""),
+  sourcesJson: text("sources_json").notNull().default("[]"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
