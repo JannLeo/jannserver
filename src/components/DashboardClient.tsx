@@ -143,6 +143,21 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summaryCopied, setSummaryCopied] = useState(false);
 
+  // AI 日计划（独立状态，不与日报互相覆盖）
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planMarkdown, setPlanMarkdown] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planCopied, setPlanCopied] = useState(false);
+  const [planUserHint, setPlanUserHint] = useState('');
+  const [suggestedTasks, setSuggestedTasks] = useState<Array<{
+    title: string;
+    priority: string;
+    projectName: string;
+    reason: string;
+  }>>([]);
+  const [selectedTaskIdx, setSelectedTaskIdx] = useState<Set<number>>(new Set());
+  const [creatingTasks, setCreatingTasks] = useState(false);
+
   const hour = new Date().getHours();
   const greeting = getGreeting(hour);
 
@@ -292,6 +307,123 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
       setSummaryError(`追加失败: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, [summaryMarkdown, todayDate]);
+
+  // 生成今日计划
+  const handleGeneratePlan = useCallback(async () => {
+    setPlanLoading(true);
+    setPlanError(null);
+    setPlanMarkdown(null);
+    setPlanCopied(false);
+    setSuggestedTasks([]);
+    setSelectedTaskIdx(new Set());
+    try {
+      const res = await fetch('/api/ai/daily-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: todayDate, userHint: planUserHint.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.configured === false) {
+          setPlanError(data.error || 'AI 未配置');
+        } else {
+          setPlanError(data.error || `请求失败 (${res.status})`);
+        }
+        return;
+      }
+      if (data.markdown) {
+        setPlanMarkdown(data.markdown);
+      } else {
+        setPlanError('AI 返回为空');
+      }
+      if (Array.isArray(data.suggestedTasks)) {
+        setSuggestedTasks(data.suggestedTasks);
+      }
+    } catch (err) {
+      setPlanError(`网络错误: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [todayDate, planUserHint]);
+
+  // 复制日计划 Markdown
+  const handleCopyPlan = useCallback(async () => {
+    if (!planMarkdown) return;
+    try {
+      await navigator.clipboard.writeText(planMarkdown);
+      setPlanCopied(true);
+      setTimeout(() => setPlanCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }, [planMarkdown]);
+
+  // 追加日计划到今日 Daily
+  const handleAppendPlanToDaily = useCallback(async () => {
+    if (!planMarkdown) return;
+    try {
+      const getRes = await fetch(`/api/daily/${todayDate}`);
+      if (!getRes.ok) {
+        setPlanError('获取 Daily 失败');
+        return;
+      }
+      const dailyData = await getRes.json();
+      const currentContent = dailyData.content || '';
+      const newContent = currentContent
+        ? `${currentContent}\n\n---\n\n${planMarkdown}`
+        : planMarkdown;
+      const putRes = await fetch(`/api/daily/${todayDate}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newContent }),
+      });
+      if (!putRes.ok) {
+        setPlanError('追加 Daily 失败');
+        return;
+      }
+      setPlanError(null);
+      setPlanMarkdown(null);
+      alert('已追加到今日 Daily');
+    } catch (err) {
+      setPlanError(`追加失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [planMarkdown, todayDate]);
+
+  // 切换建议任务选中
+  const toggleTaskSelection = (idx: number) => {
+    setSelectedTaskIdx(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  // 创建选中的建议任务
+  const handleCreateSelectedTasks = useCallback(async () => {
+    const toCreate = Array.from(selectedTaskIdx).map(i => suggestedTasks[i]).filter(Boolean);
+    if (toCreate.length === 0) return;
+    setCreatingTasks(true);
+    try {
+      for (const t of toCreate) {
+        await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: t.title,
+            priority: t.priority,
+            scheduledDate: todayDate,
+          }),
+        });
+      }
+      alert(`已创建 ${toCreate.length} 个任务`);
+      setSelectedTaskIdx(new Set());
+    } catch (err) {
+      setPlanError(`创建任务失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setCreatingTasks(false);
+    }
+  }, [selectedTaskIdx, suggestedTasks, todayDate]);
 
   const quickCreateItems = [
     { href: '/notes/new', icon: '📝', label: '新建笔记' },
@@ -459,11 +591,11 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
                   {summaryLoading ? '⏳ 生成中...' : '📝 生成工作日报'}
                 </button>
                 <button
-                  disabled
-                  className="px-3 py-1.5 text-xs text-slate-400 border border-slate-200 rounded-lg cursor-not-allowed"
-                  title="Phase 4.4 实现"
+                  onClick={handleGeneratePlan}
+                  disabled={planLoading}
+                  className="px-3 py-1.5 text-xs text-green-700 border border-green-200 rounded-lg hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  📋 生成今日计划
+                  {planLoading ? '⏳ 生成中...' : '📋 生成今日计划'}
                 </button>
                 <button
                   disabled
@@ -473,6 +605,110 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
                   📊 总结 GitHub 提交
                 </button>
               </div>
+
+              {/* 日计划 userHint 输入 */}
+              {planLoading || planMarkdown || planError ? null : (
+                <div className="mt-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={planUserHint}
+                    onChange={e => setPlanUserHint(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGeneratePlan(); } }}
+                    placeholder="今日重点（可选）：例如 FPGA RX 测试"
+                    className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-400 focus:bg-white"
+                    disabled={planLoading}
+                  />
+                </div>
+              )}
+
+              {/* 日计划错误 */}
+              {planError && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  {planError}
+                </div>
+              )}
+
+              {/* 日计划 loading */}
+              {planLoading && (
+                <div className="mt-3 p-3 text-sm text-slate-400 animate-pulse">
+                  正在收集任务和最近记录，生成今日计划...
+                </div>
+              )}
+
+              {/* 日计划结果 */}
+              {planMarkdown && !planLoading && (
+                <div className="mt-3 border border-green-200 rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-green-50 border-b border-green-200 flex items-center justify-between">
+                    <span className="text-xs font-medium text-green-700">日计划草稿</span>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={handleCopyPlan}
+                        className="text-xs px-2 py-1 bg-white border border-slate-200 rounded hover:bg-slate-50"
+                      >
+                        {planCopied ? '✓ 已复制' : '复制'}
+                      </button>
+                      <button
+                        onClick={handleAppendPlanToDaily}
+                        className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        追加到 Daily
+                      </button>
+                      <button
+                        onClick={() => { setPlanMarkdown(null); setPlanError(null); setSuggestedTasks([]); setSelectedTaskIdx(new Set()); }}
+                        className="text-xs px-2 py-1 bg-white border border-slate-200 rounded hover:bg-slate-50"
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="p-3 text-xs text-slate-700 whitespace-pre-wrap font-mono max-h-96 overflow-y-auto">
+{planMarkdown}
+                  </pre>
+
+                  {/* 建议新建任务 */}
+                  {suggestedTasks.length > 0 && (
+                    <div className="border-t border-green-200 p-3 bg-green-50/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-green-700">建议新建任务 ({suggestedTasks.length})</span>
+                        {selectedTaskIdx.size > 0 && (
+                          <button
+                            onClick={handleCreateSelectedTasks}
+                            disabled={creatingTasks}
+                            className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                          >
+                            {creatingTasks ? '创建中...' : `创建选中 (${selectedTaskIdx.size})`}
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        {suggestedTasks.map((t, i) => (
+                          <label key={i} className="flex items-start gap-2 p-2 bg-white rounded border border-slate-200 hover:border-green-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedTaskIdx.has(i)}
+                              onChange={() => toggleTaskSelection(i)}
+                              className="mt-0.5"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-slate-700 truncate">{t.title}</span>
+                                <span className={`text-xs px-1 py-0 rounded flex-shrink-0 ${
+                                  t.priority === 'high' ? 'bg-red-50 text-red-600' :
+                                  t.priority === 'medium' ? 'bg-yellow-50 text-yellow-700' :
+                                  'bg-slate-50 text-slate-500'
+                                }`}>{t.priority}</span>
+                              </div>
+                              {t.reason && (
+                                <div className="text-xs text-slate-400 mt-0.5">{t.reason}</div>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 日报错误 */}
               {summaryError && (
