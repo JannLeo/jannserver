@@ -49,6 +49,24 @@ export interface StatusResult {
   serviceReachable: boolean;
   baseUrl: string | null;
   error: string | null;
+  /** 根路径 `/` 是否可达（HTTP 200 + 识别响应体）。这是 serviceReachable 的真正判据。 */
+  rootOk: boolean;
+  /** /api/env/check 是否通过。仅作 debugInfo，不影响 serviceReachable。 */
+  envCheckOk: boolean | null;
+  /** /api/env/check 失败原因（若失败）。 */
+  envCheckError: string | null;
+}
+
+/**
+ * 判断根路径响应体是否为 MediaCrawler WebUI API。
+ * 命中 message="MediaCrawler WebUI API" 或存在 docs 字段即认为可达。
+ */
+function isMediaCrawlerRootBody(data: any): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const msg = String(data.message || '');
+  if (msg.includes('MediaCrawler WebUI API')) return true;
+  if (typeof data.docs === 'string' && data.docs.length > 0) return true;
+  return false;
 }
 
 export async function getStatus(): Promise<StatusResult> {
@@ -59,26 +77,75 @@ export async function getStatus(): Promise<StatusResult> {
       serviceReachable: false,
       baseUrl: baseUrl || null,
       error: 'MediaCrawler 未配置，请先设置 MEDIA_CRAWLER_BASE_URL 和 MEDIA_CRAWLER_ENABLED=true',
+      rootOk: false,
+      envCheckOk: null,
+      envCheckError: null,
     };
   }
 
+  // 1. 请求根路径 `/` 作为服务可达性的唯一判据。
+  //    不依赖 /api/env/check，因为后者内部触发 uv 依赖解析，受 PyPI 源 / Python 版本
+  //    markers 影响，会误报 Environment check failed。
+  let rootOk = false;
+  let rootError: string | null = null;
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(`${baseUrl}/api/health`, {
-      signal: controller.signal,
-    });
+    const res = await fetch(`${baseUrl}/`, { signal: controller.signal });
     clearTimeout(timeout);
     if (res.ok) {
-      return { configured: true, serviceReachable: true, baseUrl, error: null };
+      const data = await res.json().catch(() => null);
+      if (isMediaCrawlerRootBody(data)) {
+        rootOk = true;
+      } else {
+        rootError = `根路径响应未识别为 MediaCrawler API (status=200)`;
+      }
+    } else {
+      rootError = `MediaCrawler 根路径返回 ${res.status}`;
     }
-    return { configured: true, serviceReachable: false, baseUrl, error: `MediaCrawler 服务返回 ${res.status}` };
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      return { configured: true, serviceReachable: false, baseUrl, error: '无法连接 MediaCrawler 服务（超时）' };
+      rootError = '无法连接 MediaCrawler 服务（超时）';
+    } else {
+      rootError = '无法连接 MediaCrawler 服务';
     }
-    return { configured: true, serviceReachable: false, baseUrl, error: '无法连接 MediaCrawler 服务' };
   }
+
+  // 2. /api/env/check 仅作 debugInfo，不影响 serviceReachable。
+  //    若失败（如 uv 依赖检查误报），记录原因供前端展示。
+  let envCheckOk: boolean | null = null;
+  let envCheckError: string | null = null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(`${baseUrl}/api/env/check`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      // MediaCrawler env/check 通常返回 { success: bool, ... } 或 { ok: bool }
+      const ok = !!(data?.success || data?.ok);
+      envCheckOk = ok;
+      if (!ok) {
+        envCheckError = String(data?.message || data?.error || 'Environment check failed');
+      }
+    } else {
+      envCheckOk = false;
+      envCheckError = `env/check 返回 ${res.status}`;
+    }
+  } catch (err: any) {
+    envCheckOk = false;
+    envCheckError = err.name === 'AbortError' ? 'env/check 超时' : (err.message || 'env/check 请求失败');
+  }
+
+  return {
+    configured: true,
+    serviceReachable: rootOk,
+    baseUrl,
+    error: rootOk ? null : rootError,
+    rootOk,
+    envCheckOk,
+    envCheckError,
+  };
 }
 
 // ─── MEDIA_CRAWLER PLATFORM LIST ──────────────────────────────────────────────

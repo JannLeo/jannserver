@@ -27,6 +27,12 @@ interface StatusInfo {
   serviceReachable: boolean;
   baseUrl: string | null;
   error: string | null;
+  /** 根路径 `/` 是否可达。 */
+  rootOk: boolean;
+  /** /api/env/check 是否通过（null=未检测）。仅作 debugInfo。 */
+  envCheckOk: boolean | null;
+  /** /api/env/check 失败原因。 */
+  envCheckError: string | null;
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -254,6 +260,12 @@ export default function VideoAnalysisPage() {
                 </div>
                 {status.baseUrl && (
                   <span className="text-xs text-slate-400">{status.baseUrl}</span>
+                )}
+                {/* env/check 失败但根路径可达：提示 uv 依赖检查问题 */}
+                {status.serviceReachable && status.envCheckOk === false && (
+                  <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                    MediaCrawler API 已连接；环境检测接口失败，可能是 uv 依赖检查问题。
+                  </span>
                 )}
               </div>
             ) : (
