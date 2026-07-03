@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: '个人工作台',
+  title: 'Jann的个人工作台',
   description: '个人知识库与任务管理系统',
 };
 

@@ -1,7 +1,7 @@
 import { db, initDb } from '@/lib/db/index';
 import { notes, tasks, memos, repoSources, repoDocuments } from '@/lib/db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
-import NavBar from '@/components/NavBar';
+import Sidebar from '@/components/Sidebar';
 import DashboardClient from '@/components/DashboardClient';
 import { getRepoActivity, getTodayLocalDate } from '@/lib/activity';
 
@@ -88,9 +88,11 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <NavBar />
-      <DashboardClient data={data} activity={activity} />
+    <div className="flex min-h-screen bg-slate-50">
+      <Sidebar />
+      <main className="flex-1 overflow-auto">
+        <DashboardClient data={data} activity={activity} />
+      </main>
     </div>
   );
 }
