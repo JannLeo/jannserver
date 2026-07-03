@@ -184,6 +184,30 @@ CREATE TABLE IF NOT EXISTS wiki_error_book (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS project_code_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo_id INTEGER NOT NULL REFERENCES repo_sources(id),
+  rel_path TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT '',
+  content_hash TEXT NOT NULL DEFAULT '',
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  mtime TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  symbols_json TEXT NOT NULL DEFAULT '[]',
+  indexed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS project_symbols (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo_id INTEGER NOT NULL REFERENCES repo_sources(id),
+  file_id INTEGER NOT NULL REFERENCES project_code_files(id),
+  symbol_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  signature TEXT NOT NULL DEFAULT '',
+  start_line INTEGER NOT NULL DEFAULT 0,
+  end_line INTEGER NOT NULL DEFAULT 0,
+  summary TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 for (const stmt of createSQL.trim().split(";").filter(s => s.trim())) {
   if (stmt.trim()) sqlite.exec(stmt.trim() + ";");
@@ -201,6 +225,11 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS idx_wiki_pages_space ON wiki_pages(space_id);`,
   `CREATE INDEX IF NOT EXISTS idx_wiki_links_from ON wiki_links(from_page_id);`,
   `CREATE INDEX IF NOT EXISTS idx_wiki_error_book_unresolved ON wiki_error_book(resolved, space_id);`,
+  // project_brain indexes
+  `CREATE INDEX IF NOT EXISTS idx_code_files_repo ON project_code_files(repo_id);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_code_files_repo_path ON project_code_files(repo_id, rel_path);`,
+  `CREATE INDEX IF NOT EXISTS idx_symbols_repo_name ON project_symbols(repo_id, name);`,
+  `CREATE INDEX IF NOT EXISTS idx_symbols_file ON project_symbols(file_id);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);

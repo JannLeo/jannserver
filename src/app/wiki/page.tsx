@@ -11,6 +11,7 @@ interface WikiSpace {
   id: number;
   name: string;
   description: string;
+  sourceType: string;
   sourceId: number | null;
   pageCount: number;
 }
@@ -21,6 +22,7 @@ interface WikiPageSummary {
   slug: string;
   title: string;
   summary: string;
+  tagsJson?: string;
   confidence: string;
   updatedAt: string;
 }
@@ -69,6 +71,43 @@ function confidenceColor(c: string): string {
   if (c === 'high') return 'bg-green-100 text-green-700 border-green-200';
   if (c === 'medium') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
   return 'bg-red-100 text-red-700 border-red-200';
+}
+
+function parsePageType(tagsJson?: string): string {
+  if (!tagsJson) return '';
+  try {
+    const tags: string[] = JSON.parse(tagsJson);
+    const t = tags.find((x) => x.startsWith('pageType:'));
+    return t ? t.split(':')[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+const PAGE_TYPE_LABELS: Record<string, string> = {
+  project_overview: 'Overview',
+  module_summary: 'Module',
+  feature_summary: 'Feature',
+  config_summary: 'Config',
+  commit_summary: 'Commit',
+  code_symbol: 'Code',
+  bug_history: 'Bug',
+  decision_record: 'Decision',
+  test_summary: 'Test',
+  concept: 'Concept',
+};
+
+function pageTypeBadgeClass(pt: string): string {
+  if (pt === 'project_overview') return 'bg-blue-50 text-blue-700 border-blue-200';
+  if (pt === 'module_summary') return 'bg-purple-50 text-purple-700 border-purple-200';
+  if (pt === 'feature_summary') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  if (pt === 'config_summary') return 'bg-amber-50 text-amber-700 border-amber-200';
+  if (pt === 'commit_summary') return 'bg-teal-50 text-teal-700 border-teal-200';
+  if (pt === 'bug_history') return 'bg-red-50 text-red-700 border-red-200';
+  if (pt === 'decision_record') return 'bg-pink-50 text-pink-700 border-pink-200';
+  if (pt === 'test_summary') return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+  if (pt === 'code_symbol') return 'bg-slate-50 text-slate-700 border-slate-200';
+  return 'bg-gray-50 text-gray-700 border-gray-200';
 }
 
 export default function WikiPage() {
@@ -305,11 +344,13 @@ export default function WikiPage() {
               <p className="text-sm text-slate-400">
                 尚无 wiki space。
                 <br />
-                编译概念后会自动创建 worldquant space。
+                编译概念或项目后会自动创建 space。
               </p>
             ) : (
-              <div className="space-y-2">
-                {spaces.map((s) => (
+              (() => {
+                const conceptSpaces = spaces.filter((s) => s.sourceType !== 'project');
+                const projectSpaces = spaces.filter((s) => s.sourceType === 'project');
+                const renderSpace = (s: WikiSpace) => (
                   <div
                     key={s.id}
                     className={`p-3 rounded-lg border cursor-pointer transition ${
@@ -325,8 +366,24 @@ export default function WikiPage() {
                       <div className="text-xs text-slate-500 mt-1 line-clamp-2">{s.description}</div>
                     )}
                   </div>
-                ))}
-              </div>
+                );
+                return (
+                  <div className="space-y-4">
+                    {conceptSpaces.length > 0 && (
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 mb-2">📚 Concept Spaces</div>
+                        <div className="space-y-2">{conceptSpaces.map(renderSpace)}</div>
+                      </div>
+                    )}
+                    {projectSpaces.length > 0 && (
+                      <div>
+                        <div className="text-xs font-semibold text-slate-500 mb-2">🗂 Project Spaces</div>
+                        <div className="space-y-2">{projectSpaces.map(renderSpace)}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
             )}
           </div>
         </div>
@@ -406,30 +463,40 @@ export default function WikiPage() {
               </p>
             ) : (
               <div className="space-y-2">
-                {pages.map((p) => (
-                  <div
-                    key={p.id}
-                    className={`p-3 rounded-lg border cursor-pointer transition ${
-                      selectedPage?.id === p.id
-                        ? 'border-blue-400 bg-blue-50'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                    onClick={() => loadPage(p.id)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm flex-1 truncate">{p.title}</span>
-                      <span
-                        className={`text-xs px-1.5 py-0.5 rounded border ${confidenceColor(p.confidence)}`}
-                      >
-                        {p.confidence}
-                      </span>
+                {pages.map((p) => {
+                  const pt = parsePageType(p.tagsJson);
+                  return (
+                    <div
+                      key={p.id}
+                      className={`p-3 rounded-lg border cursor-pointer transition ${
+                        selectedPage?.id === p.id
+                          ? 'border-blue-400 bg-blue-50'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                      onClick={() => loadPage(p.id)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm flex-1 truncate">{p.title}</span>
+                        {pt && (
+                          <span
+                            className={`text-xs px-1.5 py-0.5 rounded border ${pageTypeBadgeClass(pt)}`}
+                          >
+                            {PAGE_TYPE_LABELS[pt] || pt}
+                          </span>
+                        )}
+                        <span
+                          className={`text-xs px-1.5 py-0.5 rounded border ${confidenceColor(p.confidence)}`}
+                        >
+                          {p.confidence}
+                        </span>
+                      </div>
+                      {p.summary && (
+                        <div className="text-xs text-slate-500 mt-1 line-clamp-2">{p.summary}</div>
+                      )}
+                      <div className="text-xs text-slate-400 mt-1">{formatDate(p.updatedAt)}</div>
                     </div>
-                    {p.summary && (
-                      <div className="text-xs text-slate-500 mt-1 line-clamp-2">{p.summary}</div>
-                    )}
-                    <div className="text-xs text-slate-400 mt-1">{formatDate(p.updatedAt)}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

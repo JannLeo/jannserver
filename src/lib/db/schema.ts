@@ -183,3 +183,30 @@ export const wikiErrorBook = sqliteTable("wiki_error_book", {
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── Project Brain ───────────────────────────────────────────────────────────
+export const projectCodeFiles = sqliteTable("project_code_files", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  repoId: integer("repo_id").notNull().references(() => repoSources.id),
+  relPath: text("rel_path").notNull(),
+  language: text("language").notNull().default(""),
+  contentHash: text("content_hash").notNull().default(""),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  mtime: text("mtime").notNull().default(""),
+  summary: text("summary").notNull().default(""),
+  symbolsJson: text("symbols_json").notNull().default("[]"),
+  indexedAt: text("indexed_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const projectSymbols = sqliteTable("project_symbols", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  repoId: integer("repo_id").notNull().references(() => repoSources.id),
+  fileId: integer("file_id").notNull().references(() => projectCodeFiles.id),
+  symbolType: text("symbol_type").notNull(),
+  name: text("name").notNull(),
+  signature: text("signature").notNull().default(""),
+  startLine: integer("start_line").notNull().default(0),
+  endLine: integer("end_line").notNull().default(0),
+  summary: text("summary").notNull().default(""),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});

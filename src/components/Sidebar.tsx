@@ -12,6 +12,7 @@ const navItems: [string, string, string, string][] = [
   ['/projects', '📁', '项目', '项目管理'],
   ['/repos', '📚', '知识库', 'GitHub 知识库'],
   ['/wiki', '📖', 'Wiki', 'LLM-Wiki 知识层'],
+  ['/code', '📦', '代码', '项目代码浏览'],
   ['/usage', '💳', '用量', 'AI 使用情况'],
   ['/ask', '🤖', 'AI 问答', 'AI 知识库问答'],
 ];

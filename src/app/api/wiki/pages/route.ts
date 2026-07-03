@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
           slug: wikiPages.slug,
           title: wikiPages.title,
           summary: wikiPages.summary,
+          tagsJson: wikiPages.tagsJson,
           confidence: wikiPages.confidence,
           updatedAt: wikiPages.updatedAt,
         })
@@ -47,6 +48,7 @@ export async function GET(req: NextRequest) {
           slug: wikiPages.slug,
           title: wikiPages.title,
           summary: wikiPages.summary,
+          tagsJson: wikiPages.tagsJson,
           confidence: wikiPages.confidence,
           updatedAt: wikiPages.updatedAt,
         })

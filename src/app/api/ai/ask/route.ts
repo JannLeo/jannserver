@@ -4,6 +4,14 @@ import { db, sqlite, initDb } from '@/lib/db/index';
 import { searchFts, repoDocuments, repoSources, wikiPages, wikiSpaces } from '@/lib/db/schema';
 import { or, like, eq, and } from 'drizzle-orm';
 import { searchWikiPages, getOrCreateSpace, recordWikiError } from '@/lib/wiki';
+import {
+  detectProjectContext,
+  getOrCreateProjectSpace,
+  searchProjectWiki,
+  searchCodeSymbols,
+  type ProjectWikiMatch,
+  type CodeSymbolMatch,
+} from '@/lib/projectBrain';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -683,6 +691,155 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('[ai.ask] wiki detection failed:', err);
     }
+  }
+  // ────────────────────────────────────────────────────────────────
+
+  // ── Step 0.6: Project Brain 项目级问答 ──────────────────────────
+  // 检测问题是否包含项目关键词（robin/selfie/tx/rx/efuse/fpga/...）
+  // 命中后：project_wiki + code_symbol 都进入上下文 → 调 AI 生成回答
+  // 注意：不是直接返回 wiki 内容，而是用 wiki/code 作为上下文让 AI 回答用户问题
+  const projectHit = detectProjectContext(question);
+  if (projectHit.detected) {
+    console.log('[ai.ask] project context detected:', {
+      repoName: projectHit.repoName,
+      repoId: projectHit.repoId,
+      terms: projectHit.terms,
+    });
+
+    let projectWikiHits: ProjectWikiMatch[] = [];
+    let codeSymbolHits: CodeSymbolMatch[] = [];
+    let projectSpaceId: number | null = null;
+
+    if (projectHit.repoId) {
+      try {
+        projectSpaceId = getOrCreateProjectSpace(projectHit.repoName!, projectHit.repoId);
+      } catch (err) {
+        console.error('[ai.ask] getOrCreateProjectSpace failed:', err);
+      }
+
+      if (projectSpaceId) {
+        try {
+          projectWikiHits = searchProjectWiki(
+            projectSpaceId,
+            projectHit.terms,
+            // 优先匹配项目级页面类型
+            ['project_overview', 'module_summary', 'feature_summary', 'config_summary', 'commit_summary']
+          );
+        } catch (err) {
+          console.error('[ai.ask] searchProjectWiki failed:', err);
+        }
+      }
+
+      try {
+        codeSymbolHits = searchCodeSymbols(projectHit.repoId, projectHit.terms);
+      } catch (err) {
+        console.error('[ai.ask] searchCodeSymbols failed:', err);
+      }
+    }
+
+    console.log('[ai.ask] projectWikiHits:', projectWikiHits.length, 'codeSymbolHits:', codeSymbolHits.length);
+
+    if (projectWikiHits.length > 0 || codeSymbolHits.length > 0) {
+      // 构造项目上下文 + sources，调 AI 回答用户问题
+      const contextParts: string[] = [];
+      const sources: any[] = [];
+      const seenSourceKey = new Set<string>();
+
+      // 1) project_wiki 命中
+      for (const hit of projectWikiHits.slice(0, 3)) {
+        const srcKey = `project_wiki:${hit.id}`;
+        if (seenSourceKey.has(srcKey)) continue;
+        seenSourceKey.add(srcKey);
+        contextParts.push(
+          `### 项目 Wiki: ${hit.title} (pageType=${hit.pageType}, confidence=${hit.confidence})\n${hit.content}`
+        );
+        sources.push({
+          docType: 'project_wiki',
+          docId: String(hit.id),
+          pageType: hit.pageType,
+          title: hit.title,
+          repoName: projectHit.repoName,
+          url: `/wiki?spaceId=${projectSpaceId}&pageId=${hit.id}`,
+          excerpt: hit.summary || String(hit.content || '').slice(0, 200),
+          confidence: hit.confidence,
+        });
+      }
+
+      // 2) code_symbol 命中（每条最多 600 字片段）
+      for (const hit of codeSymbolHits.slice(0, 6)) {
+        const srcKey = `code:${hit.fileId}:${hit.symbolName || hit.relPath}`;
+        if (seenSourceKey.has(srcKey)) continue;
+        seenSourceKey.add(srcKey);
+        const symDesc = hit.type === 'symbol'
+          ? `${hit.symbolType} ${hit.symbolName}${hit.signature ? ' ' + hit.signature : ''} (lines ${hit.startLine}-${hit.endLine})`
+          : `file ${hit.relPath}`;
+        const lineParam = hit.startLine ? `&line=${hit.startLine}` : '';
+        contextParts.push(
+          `### 代码: ${hit.relPath}\n${symDesc}\n${hit.summary || ''}`.trim()
+        );
+        sources.push({
+          docType: hit.type === 'symbol' ? 'code_symbol' : 'code_file',
+          fileId: hit.fileId,
+          relPath: hit.relPath,
+          title: hit.type === 'symbol' ? `${hit.symbolName} (${hit.relPath})` : hit.relPath,
+          symbolType: hit.symbolType,
+          startLine: hit.startLine,
+          endLine: hit.endLine,
+          repoName: projectHit.repoName,
+          repoId: projectHit.repoId,
+          url: `/code?repoId=${projectHit.repoId}&fileId=${hit.fileId}${lineParam}`,
+          excerpt: hit.signature || hit.summary || '',
+        });
+      }
+
+      const systemPrompt = `你是一个项目知识库问答助手。根据提供的「项目 Wiki + 代码符号」上下文回答用户问题。
+
+**回答规则：**
+1. 只基于上下文中的内容回答，不要编造文件路径/函数名/配置值/commit hash
+2. 如果上下文和问题不完全匹配，明确说明"我没有在项目知识库中找到精确匹配，以下是相关信息："
+3. 在回答中引用 sources 中的文件路径、函数名、commit hash，让用户能定位到来源
+4. 如果涉及代码，明确说明在哪个文件、哪一行附近
+5. 用中文回答，条理清晰，适当分段
+6. 如果上下文完全无法回答问题，直接说"我没有在项目知识库中找到明确来源。"`;
+
+      const userPrompt = `### 项目知识库上下文
+${contextParts.join('\n\n')}
+
+用户问题：${question}`;
+
+      let answer = '';
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+        const data = await res.json();
+        answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          return NextResponse.json({ configured: true, sources, error: 'AI 请求超时（120s）', usedKnowledgeBase: true });
+        }
+        return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}`, usedKnowledgeBase: true });
+      }
+
+      return NextResponse.json({
+        configured: true,
+        sources,
+        usedKnowledgeBase: true,
+        answer,
+        projectBrainHit: true,
+        repoName: projectHit.repoName,
+      });
+    }
+
+    // project context 检测到但 wiki/code 都未命中 → 继续走 Step 1，最后会写入 wiki_error_book
+    console.log('[ai.ask] project context detected but no wiki/code hits, falling through to Step 1');
   }
   // ────────────────────────────────────────────────────────────────
 
