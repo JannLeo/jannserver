@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
+import NavBar from '@/components/NavBar';
 
 export default function DailyPage() {
   const router = useRouter();
@@ -31,17 +32,15 @@ export default function DailyPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">📅 {date}</h1>
-        <div className="flex gap-2">
+      <NavBar title={`📅 ${date}`} />
+      <main className="max-w-4xl mx-auto p-6">
+        <div className="flex items-center gap-2 mb-4">
           <input type="date" value={date} onChange={e => router.push(`/daily/${e.target.value}`)}
             className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm" />
           <button onClick={handleSave} disabled={saving} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
-      </header>
-      <main className="max-w-4xl mx-auto p-6">
         <textarea className="w-full h-[70vh] border border-slate-200 rounded-xl p-4 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
           value={content} onChange={e => setContent(e.target.value)} />
       </main>

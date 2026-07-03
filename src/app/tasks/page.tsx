@@ -2,11 +2,12 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import NavBar from '@/components/NavBar';
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [newTitle, setNewTitle] = useState('');
-  const [filter, setFilter] = useState('all'); // all | today | done
+  const [filter, setFilter] = useState('all');
   const router = useRouter();
 
   const fetchTasks = async () => {
@@ -39,9 +40,9 @@ export default function TasksPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">✅ 任务</h1>
-        <div className="flex gap-2">
+      <NavBar title="✅ 任务" />
+      <main className="max-w-3xl mx-auto p-6">
+        <div className="flex gap-2 mb-6">
           {['all', 'today', 'done'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-sm ${filter === f ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
@@ -49,8 +50,6 @@ export default function TasksPage() {
             </button>
           ))}
         </div>
-      </header>
-      <main className="max-w-3xl mx-auto p-6">
         <div className="flex gap-2 mb-6">
           <input className="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
             placeholder="添加新任务..." value={newTitle} onChange={e => setNewTitle(e.target.value)}

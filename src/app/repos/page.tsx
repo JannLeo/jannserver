@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import NavBar from '@/components/NavBar';
 
 interface Repo {
   id: number;
@@ -245,12 +246,13 @@ export default function ReposPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">📚 GitHub 知识库</h1>
+      <NavBar title="📚 GitHub 知识库" />
+
+      <div className="bg-white px-6 py-2 border-b border-slate-100">
         <button onClick={ensureRepos} className="text-sm text-slate-500 hover:text-slate-800">
           同步配置
         </button>
-      </header>
+      </div>
 
       <div className="flex h-[calc(100vh-57px)]">
         {/* Left: Repo list */}

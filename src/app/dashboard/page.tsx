@@ -8,14 +8,8 @@ export const dynamic = 'force-dynamic';
 import { eq, desc, sql } from 'drizzle-orm';
 import Link from 'next/link';
 import { format } from 'date-fns';
-
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link href={href} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 text-sm text-slate-600">
-      {children}
-    </Link>
-  );
-}
+import NavBar from '@/components/NavBar';
+import AskSection from '@/components/AskSection';
 
 export default async function DashboardPage() {
   const initDb = (await import('@/lib/db/index')).initDb;
@@ -43,26 +37,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* 顶栏 */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">个人工作台</h1>
-        <nav className="flex gap-1">
-          {[
-            ['/dashboard', '🏠', '首页'],
-            ['/notes', '📝', '笔记'],
-            ['/tasks', '✅', '任务'],
-            ['/memos', '📋', '备忘录'],
-            ['/daily', '📅', 'Daily'],
-            ['/projects', '📁', '项目'],
-            ['/repos', '🔖', '知识库'],
-            ['/ask', '🤖', '问答'],
-          ].map(([href, icon, label]) => (
-            <Link key={href} href={href} className="flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-slate-100 text-sm text-slate-600">
-              <span>{icon}</span><span>{label}</span>
-            </Link>
-          ))}
-        </nav>
-      </header>
+      <NavBar title="个人工作台" />
 
       <main className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -149,6 +124,10 @@ export default async function DashboardPage() {
         </div>
 
       </main>
+
+      <div className="max-w-6xl mx-auto px-6 pb-6">
+        <AskSection />
+      </div>
     </div>
   );
 }

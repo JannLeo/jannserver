@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import NavBar from '@/components/NavBar';
 
 export default function NewNotePage() {
   const [title, setTitle] = useState('');
@@ -22,16 +23,13 @@ export default function NewNotePage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">📝 新建笔记</h1>
-        <div className="flex gap-2">
-          <button onClick={() => router.back()} className="border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-50">取消</button>
+      <NavBar title="📝 新建笔记" backTo="/notes" backLabel="返回笔记" />
+      <main className="max-w-4xl mx-auto p-6">
+        <div className="flex justify-end mb-4">
           <button onClick={handleSave} disabled={saving} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
-      </header>
-      <main className="max-w-4xl mx-auto p-6">
         <input
           className="w-full text-2xl font-bold border-none outline-none bg-transparent mb-4 placeholder:text-slate-300"
           placeholder="笔记标题"

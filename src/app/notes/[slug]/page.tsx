@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
+import NavBar from '@/components/NavBar';
 
 export default function NoteDetailPage() {
   const params = useParams();
@@ -40,9 +41,9 @@ export default function NoteDetailPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <button onClick={() => router.push('/notes')} className="text-sm text-blue-500">&larr; 返回</button>
-        <div className="flex gap-2">
+      <NavBar title={note.title} backTo="/notes" backLabel="返回笔记" />
+      <main className="max-w-4xl mx-auto p-6">
+        <div className="flex justify-end gap-2 mb-4">
           {editing ? (
             <>
               <button onClick={() => setEditing(false)} className="border border-slate-300 px-4 py-2 rounded-lg text-sm">取消</button>
@@ -52,8 +53,6 @@ export default function NoteDetailPage() {
             <button onClick={() => setEditing(true)} className="border border-slate-300 px-4 py-2 rounded-lg text-sm">编辑</button>
           )}
         </div>
-      </header>
-      <main className="max-w-4xl mx-auto p-6">
         {editing ? (
           <>
             <input className="w-full text-2xl font-bold border-none outline-none bg-transparent mb-4" value={title} onChange={e => setTitle(e.target.value)} />

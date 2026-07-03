@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import NavBar from '@/components/NavBar';
 
 export default function NotesPage() {
   const [notes, setNotes] = useState<any[]>([]);
@@ -20,11 +21,11 @@ export default function NotesPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">📝 知识库</h1>
-        <Link href="/notes/new" className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">+ 新建笔记</Link>
-      </header>
+      <NavBar title="📝 知识库" />
       <main className="max-w-4xl mx-auto p-6">
+        <div className="flex items-center justify-between mb-4">
+          <Link href="/notes/new" className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">+ 新建笔记</Link>
+        </div>
         {loading ? <p className="text-slate-400">加载中...</p> : (
           <div className="grid gap-4">
             {notes.length === 0 && <p className="text-slate-400 text-center py-10">暂无笔记</p>}

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import NavBar from '@/components/NavBar';
 
 export default function MemosPage() {
   const [memos, setMemos] = useState<any[]>([]);
@@ -32,11 +33,11 @@ export default function MemosPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">📋 备忘录</h1>
-        <button onClick={() => setShowNew(!showNew)} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">{showNew ? '关闭' : '+ 新建'}</button>
-      </header>
+      <NavBar title="📋 备忘录" />
       <main className="max-w-3xl mx-auto p-6">
+        <div className="mb-6">
+          <button onClick={() => setShowNew(!showNew)} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">{showNew ? '关闭' : '+ 新建'}</button>
+        </div>
         {showNew && (
           <div className="mb-6 bg-white rounded-xl p-4 border border-slate-200">
             <textarea className="w-full min-h-[120px] border border-slate-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"

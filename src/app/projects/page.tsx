@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import NavBar from '@/components/NavBar';
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([]);
@@ -24,11 +25,11 @@ export default function ProjectsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">📁 项目</h1>
-        <button onClick={() => setShowNew(!showNew)} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">+ 新建项目</button>
-      </header>
+      <NavBar title="📁 项目" />
       <main className="max-w-4xl mx-auto p-6">
+        <div className="mb-6">
+          <button onClick={() => setShowNew(!showNew)} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">+ 新建项目</button>
+        </div>
         {showNew && (
           <div className="mb-6 bg-white rounded-xl p-4 border border-slate-200 flex gap-2">
             <input className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"

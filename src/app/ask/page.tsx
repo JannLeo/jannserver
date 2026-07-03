@@ -1,5 +1,6 @@
 'use client';
 import { useState, useCallback } from 'react';
+import NavBar from '@/components/NavBar';
 
 interface Source {
   docType: string;
@@ -88,10 +89,7 @@ export default function AskPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">AI 知识库问答</h1>
-      </header>
+      <NavBar title="🤖 AI 知识库问答" />
 
       <main className="max-w-3xl mx-auto p-6 space-y-6">
         {/* Input */}
