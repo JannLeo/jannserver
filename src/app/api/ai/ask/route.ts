@@ -703,6 +703,39 @@ function extractEnglishTokens(question: string): string[] {
   return [...new Set(tokens)];
 }
 
+// Returns true if the question looks like a DEFINITION question.
+// "fitness是什么" → true (wants definition of Fitness)
+// "印象最深刻的alpha是什么" → false (wants examples, not definition)
+// "最好的alpha是哪个" → false (wants recommendations)
+function isDefinitionQuestion(question: string): boolean {
+  // Questions that are clearly looking for a definition
+  const defPatterns = [
+    /^(什么是|什么叫|定义是|定义?|概念是|概念?|含义是|含义?|解释是|解释?)/i,   // starts with "什么是"
+    /^(what\s+is|what'?s|definition\s+of|explain\s+what)/i,                       // English "what is X"
+    /^(who\s+is|who'?s|when\s+is|where\s+is|how\s+to\s+)/i,                       // what-is-equivalent wh-words
+  ];
+  for (const p of defPatterns) {
+    if (p.test(question.trim())) return true;
+  }
+
+  // Questions that ask for recommendations / rankings / examples
+  // (should NOT return a single definition page)
+  const queryPatterns = [
+    /最好的|最佳的|最强的|最差的|印象最|最深刻|最经典|最常用/i,   // superlatives
+    /哪个|哪些|有什么|推荐|排名|前十|top\s*\d|best\s*\d/i,           // "which" / list questions
+    /怎么选|如何选择|哪个更好|哪个更强/i,                           // choice questions
+    /怎么写|如何写|示例|例子|代码/i,                                 // how-to examples (less definitive)
+  ];
+  for (const p of queryPatterns) {
+    if (p.test(question)) return false;
+  }
+
+  // Default: if it contains "是什么/什么是" and no superlatives, it's a def question
+  if (/是什么|什么是/.test(question)) return true;
+
+  return true; // safe default: treat as def question
+}
+
 /**
  * Attempt to match a question against all wiki pages globally.
  * Does NOT require repo name in the question.
@@ -856,7 +889,10 @@ export async function POST(req: NextRequest) {
   // ────────────────────────────────────────────────────────────────
 
   // ── Step 0 NEW: 全局 Wiki 精确命中（不依赖 repoName）──────────────
-  {
+  // Only attempt exact wiki match for definition-type questions.
+  // Questions asking for recommendations / examples / rankings skip this step
+  // and fall through to repo search (e.g. "印象最深刻的alpha是什么").
+  if (isDefinitionQuestion(question)) {
     const route = matchGlobalWikiConcept(question);
     if (route) {
       console.log('[ai.ask] wiki_exact matched:', route.matchedTerm, '→ pageId:', route.page.id);
