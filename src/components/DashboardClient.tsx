@@ -459,7 +459,7 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
   ];
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-6 pb-0">
+    <div className="h-full max-w-5xl mx-auto p-6">
       {/* 顶部问候 */}
       <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-5 sm:p-6 border border-blue-100">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

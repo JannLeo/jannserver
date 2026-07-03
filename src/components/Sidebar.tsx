@@ -18,7 +18,7 @@ const navItems: [string, string, string, string][] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <aside
@@ -58,7 +58,7 @@ export default function Sidebar() {
                 )
               }
             >
-              <span className="text-sm flex-shrink-0 leading-none mt-0.5">{icon}</span>
+              <span className="text-sm flex-shrink-0">{icon}</span>
               {expanded && (
                 <span className="text-xs font-medium truncate">{label}</span>
               )}
