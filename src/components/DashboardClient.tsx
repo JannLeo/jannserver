@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 
@@ -141,6 +141,10 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryMarkdown, setSummaryMarkdown] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  // new-api 使用情况
+  const [usageData, setUsageData] = useState<any | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
 
   // AI 日计划（独立状态，不与日报互相覆盖）
@@ -226,6 +230,26 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
       handleAsk();
     }
   };
+
+  // 加载 new-api 使用情况（失败不阻塞 Dashboard）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setUsageLoading(true);
+      try {
+        const res = await fetch('/api/new-api/usage?range=7d');
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setUsageData(data);
+        }
+      } catch (e) {
+        // 静默失败，不阻塞页面
+      } finally {
+        if (!cancelled) setUsageLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // 生成工作日报
   const handleGenerateSummary = useCallback(async () => {
@@ -809,6 +833,78 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
                   <span className="text-xs text-slate-600">{item.label}</span>
                 </Link>
               ))}
+            </div>
+          </section>
+
+          {/* AI 使用情况 */}
+          <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="font-semibold text-slate-800">💳 AI 使用情况</h2>
+              <Link href="/usage" className="text-xs text-slate-500 hover:text-blue-600 whitespace-nowrap">
+                详情 →
+              </Link>
+            </div>
+            <div className="p-5">
+              {usageLoading ? (
+                <p className="text-sm text-slate-400 text-center py-4">加载中...</p>
+              ) : !usageData || !usageData.configured ? (
+                <div className="text-center py-3">
+                  <p className="text-sm text-slate-500 mb-1">new-api 统计未配置</p>
+                  <p className="text-xs text-slate-400">需配置 NEW_API_ADMIN_TOKEN</p>
+                </div>
+              ) : usageData.error && !usageData.summary ? (
+                <div className="text-center py-3">
+                  <p className="text-sm text-red-500 mb-1">⚠️ {usageData.error}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* 余额 */}
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-slate-500">当前余额</span>
+                    <span className="text-lg font-bold text-slate-800">
+                      {usageData.summary?.balance != null ? `$${usageData.summary.balance.toFixed(2)}` : '-'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-xs text-slate-400">今日消耗</div>
+                      <div className="font-medium text-slate-700">
+                        {usageData.summary?.usedToday != null ? `$${usageData.summary.usedToday.toFixed(2)}` : '-'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">7 日消耗</div>
+                      <div className="font-medium text-slate-700">
+                        {usageData.summary?.used7d != null ? `$${usageData.summary.used7d.toFixed(2)}` : '-'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">今日请求</div>
+                      <div className="font-medium text-slate-700">
+                        {usageData.summary?.requestCountToday != null ? usageData.summary.requestCountToday : '-'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">今日 tokens</div>
+                      <div className="font-medium text-slate-700">
+                        {usageData.summary?.tokenCountToday != null ? usageData.summary.tokenCountToday.toLocaleString() : '-'}
+                      </div>
+                    </div>
+                  </div>
+                  {/* 使用最多模型 */}
+                  {usageData.byModel && usageData.byModel.length > 0 && (
+                    <div className="pt-2 border-t border-slate-100">
+                      <div className="text-xs text-slate-400 mb-1">使用最多模型</div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-slate-700 truncate">{usageData.byModel[0].model}</span>
+                        <span className="text-xs text-slate-500 ml-2">
+                          {usageData.byModel[0].requests} 次 / ${usageData.byModel[0].cost.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 
