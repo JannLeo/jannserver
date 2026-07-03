@@ -703,39 +703,6 @@ function extractEnglishTokens(question: string): string[] {
   return [...new Set(tokens)];
 }
 
-// Returns true if the question looks like a DEFINITION question.
-// "fitness是什么" → true (wants definition of Fitness)
-// "印象最深刻的alpha是什么" → false (wants examples, not definition)
-// "最好的alpha是哪个" → false (wants recommendations)
-function isDefinitionQuestion(question: string): boolean {
-  // Questions that are clearly looking for a definition
-  const defPatterns = [
-    /^(什么是|什么叫|定义是|定义?|概念是|概念?|含义是|含义?|解释是|解释?)/i,   // starts with "什么是"
-    /^(what\s+is|what'?s|definition\s+of|explain\s+what)/i,                       // English "what is X"
-    /^(who\s+is|who'?s|when\s+is|where\s+is|how\s+to\s+)/i,                       // what-is-equivalent wh-words
-  ];
-  for (const p of defPatterns) {
-    if (p.test(question.trim())) return true;
-  }
-
-  // Questions that ask for recommendations / rankings / examples
-  // (should NOT return a single definition page)
-  const queryPatterns = [
-    /最好的|最佳的|最强的|最差的|印象最|最深刻|最经典|最常用/i,   // superlatives
-    /哪个|哪些|有什么|推荐|排名|前十|top\s*\d|best\s*\d/i,           // "which" / list questions
-    /怎么选|如何选择|哪个更好|哪个更强/i,                           // choice questions
-    /怎么写|如何写|示例|例子|代码/i,                                 // how-to examples (less definitive)
-  ];
-  for (const p of queryPatterns) {
-    if (p.test(question)) return false;
-  }
-
-  // Default: if it contains "是什么/什么是" and no superlatives, it's a def question
-  if (/是什么|什么是/.test(question)) return true;
-
-  return true; // safe default: treat as def question
-}
-
 /**
  * Attempt to match a question against all wiki pages globally.
  * Does NOT require repo name in the question.
@@ -889,36 +856,40 @@ export async function POST(req: NextRequest) {
   // ────────────────────────────────────────────────────────────────
 
   // ── Step 0 NEW: 全局 Wiki 精确命中（不依赖 repoName）──────────────
-  // Only attempt exact wiki match for definition-type questions.
-  // Questions asking for recommendations / examples / rankings skip this step
-  // and fall through to repo search (e.g. "印象最深刻的alpha是什么").
-  if (isDefinitionQuestion(question)) {
+  // 命中后不直接返回 page.content，而是把 wiki 内容作为上下文 → 调 AI 回答用户问题。
+  // wikiContextParts/wikiSources 在这里声明，被 Step 0 / Step 0.5 共同填充，
+  // 在 Step 0.5 之后统一交给 AI。无论是否为定义型问题都走 AI，让 AI 处理主观/
+  // 推荐类问题（如"印象最深刻的alpha"），而不是直接复述 wiki 定义。
+  const wikiContextParts: string[] = [];
+  const wikiSources: any[] = [];
+  let globalWikiMatch: { page: any; spaceId: number; spaceName: string; matchedTerm: string } | null = null;
+  {
     const route = matchGlobalWikiConcept(question);
     if (route) {
       console.log('[ai.ask] wiki_exact matched:', route.matchedTerm, '→ pageId:', route.page.id);
-      return NextResponse.json({
-        configured: true,
-        answer: route.page.content,
-        sources: [{
-          docType: 'wiki_page',
-          docId: String(route.page.id),
-          title: route.page.title,
-          repoName: route.spaceName,
-          url: `/wiki?spaceId=${route.spaceId}&pageId=${route.page.id}`,
-          excerpt: String(route.page.content || '').slice(0, 300),
-          confidence: route.page.confidence || 'high',
-        }],
-        usedKnowledgeBase: true,
-        route: 'wiki_exact',
-        matchedTerm: route.matchedTerm,
+      globalWikiMatch = route;
+      wikiContextParts.push(
+        `### Wiki 概念页: ${route.page.title} (confidence=${route.page.confidence || 'high'})\n${route.page.content}`
+      );
+      wikiSources.push({
+        docType: 'wiki_page',
+        docId: String(route.page.id),
+        title: route.page.title,
+        repoName: route.spaceName,
+        url: `/wiki?spaceId=${route.spaceId}&pageId=${route.page.id}`,
+        excerpt: String(route.page.content || '').slice(0, 300),
+        confidence: route.page.confidence || 'high',
       });
     }
   }
   // ────────────────────────────────────────────────────────────────
 
   // ── Step 0.5: Wiki 知识层命中检测（仅 worldquant/WQ 概念）─────────
+  // wiki 命中后不直接返回定义页，而是把 wiki 内容作为上下文 + 补充 repo_documents
+  // 搜索 → 调 AI 生成回答，让 AI 真正回答用户的问题（而不是复述定义）。
   const wqConcept = detectWorldQuantConcept(question);
   let wqSpaceId: number | null = null;
+
   if (wqConcept.detected) {
     console.log('[ai.ask] WQ concept detected:', wqConcept.concepts);
     try {
@@ -926,31 +897,107 @@ export async function POST(req: NextRequest) {
       const wikiHits = searchWikiPages(wqSpaceId, wqConcept.searchTerms);
       console.log('[ai.ask] wikiHits count:', wikiHits.length);
 
-      if (wikiHits.length > 0) {
-        const top = wikiHits[0];
-        const page = db.select().from(wikiPages).where(eq(wikiPages.id, top.id)).get() as any;
+      // 收集 wiki 上下文（top 3），不直接返回
+      for (const hit of wikiHits.slice(0, 3)) {
+        const page = db.select().from(wikiPages).where(eq(wikiPages.id, hit.id)).get() as any;
         if (page) {
-          return NextResponse.json({
-            configured: true,
-            answer: page.content,
-            sources: [{
-              docType: 'wiki_page',
-              docId: String(page.id),
-              title: page.title,
-              repoName: 'worldquant',
-              url: `/wiki?spaceId=${wqSpaceId}&pageId=${page.id}`,
-              excerpt: page.summary || String(page.content || '').slice(0, 200),
-              confidence: page.confidence,
-            }],
-            usedKnowledgeBase: true,
-            route: 'wiki_search',
-            wikiHit: true,
+          wikiContextParts.push(
+            `### Wiki 概念页: ${page.title} (confidence=${page.confidence})\n${page.content}`
+          );
+          wikiSources.push({
+            docType: 'wiki_page',
+            docId: String(page.id),
+            title: page.title,
+            repoName: 'worldquant',
+            url: `/wiki?spaceId=${wqSpaceId}&pageId=${page.id}`,
+            excerpt: page.summary || String(page.content || '').slice(0, 200),
+            confidence: page.confidence,
           });
         }
       }
     } catch (err) {
       console.error('[ai.ask] wiki detection failed:', err);
     }
+  }
+
+  // 有 wiki 上下文 → 调 AI 回答用户问题（而不是复述 wiki 定义）
+  if (wikiContextParts.length > 0) {
+    // 补充 repo_documents 搜索，获取 wiki 没覆盖的细节
+    const repoContextParts: string[] = [];
+    const repoSourcesList: any[] = [];
+    try {
+      const srcRow = db.select().from(repoSources).all().find((r: any) => r.name === 'worldquant') as any;
+      if (srcRow) {
+        // 优先用 WQ 同义词；若仅 Step 0 全局命中，则用 matchedTerm + 问题 token
+        const searchTerms = wqConcept.detected && wqConcept.searchTerms.length > 0
+          ? wqConcept.searchTerms
+          : (globalWikiMatch ? [globalWikiMatch.matchedTerm, ...tokenize(question)] : tokenize(question));
+        const repoResults = rawSearchInRepo(srcRow.id, searchTerms);
+        if (repoResults.length > 0) {
+          const scoredRepoDocs = rerankAndSelect(repoResults, question, 'worldquant').slice(0, 3);
+          if (scoredRepoDocs.length > 0) {
+            const built = buildContextAndSources(scoredRepoDocs);
+            repoContextParts.push(built.prompt);
+            repoSourcesList.push(...built.sources);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[ai.ask] wiki+repo supplementary search failed:', err);
+    }
+
+    const allContext = [...wikiContextParts, ...repoContextParts].join('\n\n');
+    // 合并 sources，去重（wiki_page + github_md）
+    const seenSrcKey = new Set<string>();
+    const allSources: any[] = [];
+    for (const s of [...wikiSources, ...repoSourcesList]) {
+      const key = `${s.docType}::${s.docId || s.title}`;
+      if (seenSrcKey.has(key)) continue;
+      seenSrcKey.add(key);
+      allSources.push(s);
+    }
+
+    const systemPrompt = `你是一个知识库问答助手。根据提供的「Wiki 概念页 + 知识库文档」上下文回答用户问题。
+
+**回答规则：**
+1. 基于上下文中的内容回答用户的具体问题，**不要简单复述定义**
+2. 如果问题是主观性/总结性的（如"印象最深刻"、"最重要的"、"最常用"），结合知识库内容给出有针对性的回答，而不是罗列定义
+3. 如果上下文和问题不完全匹配，诚实说明"我没有找到精确匹配的内容，以下基于相近信息回答"，然后基于你的通用知识给出完整有用答案
+4. 优先引用标题最相关的来源，在回答中说明来自哪个来源（如"根据《XXX》..."）
+5. 不要被不相关 sources 带偏，只使用与问题语义最相关的内容
+6. 用中文回答，条理清晰，适当分段
+7. **最关键**：如果所有 sources 都与问题无关或知识库内容很少/不相关，**完全基于你的通用知识**给出完整有用的回答，不要说"无法回答"、不要拒绝回答`;
+
+    const userPrompt = `${allContext}
+
+用户问题：${question}`;
+
+    let answer = '';
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+      const data = await res.json();
+      answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
+    } catch (err: any) {
+      if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources: allSources, error: 'AI 请求超时（120s）', usedKnowledgeBase: true });
+      return NextResponse.json({ configured: true, sources: allSources, error: `AI 请求失败: ${err.message}`, usedKnowledgeBase: true });
+    }
+
+    return NextResponse.json({
+      configured: true,
+      sources: allSources,
+      usedKnowledgeBase: true,
+      answer,
+      wikiHit: true,
+    });
   }
   // ────────────────────────────────────────────────────────────────
 
