@@ -33,7 +33,8 @@ export async function POST(req: NextRequest) {
     if (!result.ok) {
       return NextResponse.json(result, { status: 500 });
     }
-    return NextResponse.json(result);
+    // Provide entityCount/relationCount aliases for frontend compatibility
+    return NextResponse.json({ ...result, entityCount: result.entities, relationCount: result.relations });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: String(err?.message || err) },

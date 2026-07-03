@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { compileProjectPage, type CompileMode } from '@/lib/projectBrain';
+import { getAllowedModes } from '@/lib/projectBrainConfig';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,23 @@ export async function POST(req: NextRequest) {
       { error: `mode 必须是: ${VALID_MODES.join(', ')}` },
       { status: 400 }
     );
+  }
+
+  // Profile mode guard: reject modes not allowed for this repo's profile
+  const allowedModes = getAllowedModes(repoName);
+  if (modeRaw !== 'all') {
+    if (!allowedModes.includes(modeRaw)) {
+      return NextResponse.json(
+        {
+          configured: true,
+          ok: false,
+          repoName,
+          mode: modeRaw,
+          reason: `mode ${modeRaw} is not allowed for this repo (profile restricts to: ${allowedModes.join(', ')})`,
+        },
+        { status: 200 }
+      );
+    }
   }
 
   try {

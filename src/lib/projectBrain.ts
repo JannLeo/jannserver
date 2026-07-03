@@ -43,6 +43,7 @@ import { eq, and, like, or } from 'drizzle-orm';
 import { updateFts, deleteFtsByDoc } from './search';
 import { extractSymbols, buildFileSummary, detectLanguage } from './projectSymbols';
 import { isPathUnderReposBase } from './paths';
+import { getAllowedModes, getRepoProfile } from './projectBrainConfig';
 
 const execFileAsync = promisify(execFile);
 const path = nodePath;
@@ -857,7 +858,12 @@ export async function compileProjectPage(opts: {
   const { repoName, mode, aiBaseUrl, aiApiKey, aiModel } = opts;
 
   if (mode === 'all') {
-    const subModes: CompileMode[] = ['overview', 'modules', 'configs', 'commits'];
+    const allowed = getAllowedModes(repoName);
+    const allModes: CompileMode[] = ['overview', 'modules', 'configs', 'commits'];
+    const subModes = allModes.filter((m): boolean => allowed.includes(m));
+    if (subModes.length === 0) {
+      return { ok: false, reason: `no allowed compile modes for this repo (profile restricts to: ${allowed.join(', ')})` };
+    }
     let lastOk: CompilePageResult | null = null;
     let firstReason: string | null = null;
     for (const sub of subModes) {
@@ -871,6 +877,12 @@ export async function compileProjectPage(opts: {
 
   const ctx = getProjectContext(repoName);
   if (!ctx) return { ok: false, reason: `repo not found or path invalid: ${repoName}` };
+
+  // Profile mode guard (backstop — route also checks this)
+  const allowedModes = getAllowedModes(repoName);
+  if (!allowedModes.includes(mode)) {
+    return { ok: false, reason: `mode ${mode} is not allowed for this repo (profile restricts to: ${allowedModes.join(', ')})` };
+  }
 
   const spaceId = getOrCreateProjectSpace(repoName, ctx.repoId);
 
@@ -1009,6 +1021,7 @@ export async function compileProjectPage(opts: {
 export interface ProjectBrainStatus {
   repoId: number;
   repoName: string;
+  profile: string;
   codeFileCount: number;
   symbolCount: number;
   lastScanAt: string | null;
@@ -1018,6 +1031,20 @@ export interface ProjectBrainStatus {
 export function getProjectBrainStatus(repoName: string): ProjectBrainStatus | null {
   const ctx = getProjectContext(repoName);
   if (!ctx) return null;
+
+  // docs profile has no code files or symbols
+  const profile = getRepoProfile(repoName);
+  if (profile === 'docs') {
+    return {
+      repoId: ctx.repoId,
+      repoName,
+      profile: 'docs',
+      codeFileCount: 0,
+      symbolCount: 0,
+      lastScanAt: null,
+      wikiPages: [],
+    };
+  }
 
   const fileRows = db
     .select({ id: projectCodeFiles.id, indexedAt: projectCodeFiles.indexedAt })
@@ -1073,6 +1100,7 @@ export function getProjectBrainStatus(repoName: string): ProjectBrainStatus | nu
   return {
     repoId: ctx.repoId,
     repoName: ctx.repoName,
+    profile: getRepoProfile(repoName),
     codeFileCount,
     symbolCount: symCount,
     lastScanAt,

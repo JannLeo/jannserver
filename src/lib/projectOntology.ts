@@ -156,24 +156,20 @@ export interface BuildOntologyResult {
   ok: boolean;
   repoId: number;
   repoName: string;
-  entitiesCreated: number;
-  relationsCreated: number;
+  entities: number;
+  relations: number;
   byEntityType: Record<string, number>;
   byRelationType: Record<string, number>;
   reason?: string;
 }
 
-// ─── 内部:实体/关系缓存(构建期间用 Map 加速) ──────────────────────────────
-
 interface BuildContext {
   repoId: number;
   repoName: string;
-  /** canonicalName → entity row id */
   entityIds: Map<string, number>;
-  /** 已经尝试插入的 relation triple key (避免重复) */
   relationSeen: Set<string>;
-  entitiesCreated: number;
-  relationsCreated: number;
+  entities: number;
+  relations: number;
   byEntityType: Record<string, number>;
   byRelationType: Record<string, number>;
 }
@@ -184,8 +180,8 @@ function makeCtx(repoId: number, repoName: string): BuildContext {
     repoName,
     entityIds: new Map(),
     relationSeen: new Set(),
-    entitiesCreated: 0,
-    relationsCreated: 0,
+    entities: 0,
+    relations: 0,
     byEntityType: {},
     byRelationType: {},
   };
@@ -217,7 +213,7 @@ function insertEntity(ctx: BuildContext, e: EntityInsert): number | null {
       .run() as any;
     const id = Number(ins.lastInsertRowid);
     ctx.entityIds.set(canonicalName, id);
-    ctx.entitiesCreated++;
+    ctx.entities++;
     ctx.byEntityType[e.entityType] = (ctx.byEntityType[e.entityType] || 0) + 1;
     return id;
   } catch (err) {
@@ -263,7 +259,7 @@ function insertRelation(ctx: BuildContext, r: RelationInsert): void {
         updatedAt: now,
       })
       .run();
-    ctx.relationsCreated++;
+    ctx.relations++;
     ctx.byRelationType[r.relationType] = (ctx.byRelationType[r.relationType] || 0) + 1;
   } catch {
     // 唯一约束冲突,忽略
@@ -289,7 +285,7 @@ function insertRelation(ctx: BuildContext, r: RelationInsert): void {
 export async function buildProjectOntology(repoName: string): Promise<BuildOntologyResult> {
   const ctx0 = getProjectContext(repoName);
   if (!ctx0) {
-    return { ok: false, repoId: 0, repoName, entitiesCreated: 0, relationsCreated: 0, byEntityType: {}, byRelationType: {}, reason: `repo not found or path invalid: ${repoName}` };
+    return { ok: false, repoId: 0, repoName, entities: 0, relations: 0, byEntityType: {}, byRelationType: {}, reason: `repo not found or path invalid: ${repoName}` };
   }
   const { repoId, repoName: name } = ctx0;
   const ctx = makeCtx(repoId, name);
@@ -299,7 +295,7 @@ export async function buildProjectOntology(repoName: string): Promise<BuildOntol
     db.delete(ontologyRelations).where(eq(ontologyRelations.repoId, repoId)).run();
     db.delete(ontologyEntities).where(eq(ontologyEntities.repoId, repoId)).run();
   } catch (err) {
-    return { ok: false, repoId, repoName: name, entitiesCreated: 0, relationsCreated: 0, byEntityType: {}, byRelationType: {}, reason: `clear old ontology failed: ${String(err)}` };
+    return { ok: false, repoId, repoName: name, entities: 0, relations: 0, byEntityType: {}, byRelationType: {}, reason: `clear old ontology failed: ${String(err)}` };
   }
 
   // 2. Project entity
@@ -624,8 +620,8 @@ export async function buildProjectOntology(repoName: string): Promise<BuildOntol
     ok: true,
     repoId,
     repoName: name,
-    entitiesCreated: ctx.entitiesCreated,
-    relationsCreated: ctx.relationsCreated,
+    entities: ctx.entities,
+    relations: ctx.relations,
     byEntityType: ctx.byEntityType,
     byRelationType: ctx.byRelationType,
   };

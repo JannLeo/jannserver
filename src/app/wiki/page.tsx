@@ -84,6 +84,19 @@ function parsePageType(tagsJson?: string): string {
   }
 }
 
+/** 安全的 JSON 解析：response.body 为空或非 JSON 时返回 error response，不抛异常 */
+async function safeJson(res: Response): Promise<{ configured: boolean; ok: boolean; [key: string]: unknown }> {
+  const text = await res.text();
+  if (!text.trim()) {
+    return { configured: true, ok: false, reason: `HTTP ${res.status} — empty response body` };
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { configured: true, ok: false, reason: `HTTP ${res.status} — invalid JSON: ${text.slice(0, 200)}` };
+  }
+}
+
 const PAGE_TYPE_LABELS: Record<string, string> = {
   project_overview: 'Overview',
   module_summary: 'Module',
@@ -393,7 +406,7 @@ export default function WikiPage() {
 
   // ─── Project Brain 操作（静默执行，不管理 brainRunning） ────────────────────
 
-  const runScan = async (repoName: string): Promise<void> => {
+  const runScan = async (repoName: string): Promise<boolean> => {
     appendLog(`▶ 扫描代码文件 ...`);
     try {
       const res = await fetch('/api/project-brain/scan', {
@@ -401,20 +414,23 @@ export default function WikiPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repoName }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.ok) {
         appendLog(
-          `  ✓ scanned=${data.scanned} inserted=${data.inserted} updated=${data.updated} skipped=${data.skipped} skippedLargeFiles=${data.skippedLargeFiles} skippedByExcludePaths=${data.skippedByExcludePaths ?? 0} removed=${data.removed}`
+          `  ✓ scanned=${(data as any).scanned} inserted=${(data as any).inserted} updated=${(data as any).updated} skipped=${(data as any).skipped} skippedLargeFiles=${(data as any).skippedLargeFiles} removed=${(data as any).removed}`
         );
+        return true;
       } else {
-        appendLog(`  ✗ scan 失败: ${data.error || data.reason || '未知错误'}`);
+        appendLog(`  ✗ scan 失败: ${data.reason || '未知错误'}`);
+        return false;
       }
     } catch (e: any) {
       appendLog(`  ✗ scan 请求失败: ${e.message}`);
+      return false;
     }
   };
 
-  const runCompileMode = async (repoName: string, mode: string): Promise<void> => {
+  const runCompileMode = async (repoName: string, mode: string): Promise<boolean> => {
     appendLog(`▶ 编译 ${mode} ...`);
     try {
       const res = await fetch('/api/project-brain/compile', {
@@ -422,24 +438,28 @@ export default function WikiPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repoName, mode }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!data.configured) {
         appendLog(`  ✗ AI 未配置，跳过 ${mode}`);
+        return false;
       } else if (data.ok) {
         if (data.alreadyExists) {
           appendLog(`  ✓ ${mode} 已存在 (confidence=${data.confidence})，跳过`);
         } else {
           appendLog(`  ✓ ${mode} 成功 pageId=${data.pageId} confidence=${data.confidence} sources=${data.sourceCount}`);
         }
+        return true;
       } else {
         appendLog(`  ✗ ${mode} 失败: ${data.error || data.reason || '未知错误'}`);
+        return false;
       }
     } catch (e: any) {
       appendLog(`  ✗ ${mode} 请求失败: ${e.message}`);
+      return false;
     }
   };
 
-  const runOntology = async (repoName: string): Promise<void> => {
+  const runOntology = async (repoName: string): Promise<boolean> => {
     appendLog(`▶ 构建 Ontology ...`);
     try {
       const res = await fetch('/api/project-brain/ontology', {
@@ -447,14 +467,17 @@ export default function WikiPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repoName }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.ok) {
-        appendLog(`  ✓ entities=${data.entityCount} relations=${data.relationCount}`);
+        appendLog(`  ✓ entities=${data.entityCount ?? 0} relations=${data.relationCount ?? 0}`);
+        return true;
       } else {
         appendLog(`  ✗ ontology 失败: ${data.error || data.reason || '未知错误'}`);
+        return false;
       }
     } catch (e: any) {
       appendLog(`  ✗ ontology 请求失败: ${e.message}`);
+      return false;
     }
   };
 
@@ -497,8 +520,8 @@ export default function WikiPage() {
 
   /**
    * 一键构建 Project Brain（profile-aware）：
-   *   1. scan
-   *   2. compile 每个 profile.allowedModes
+   *   1. scan（失败则停止所有后续步骤）
+   *   2. compile 每个 profile.allowedModes（失败继续但标记）
    *   3. ontology
    * docs profile 只跑 overview + commits；code profile 跑全部 4 个模式。
    */
@@ -509,9 +532,18 @@ export default function WikiPage() {
     const profile = getClientProfile(repoName);
     setBrainRunning('all');
     appendLog(`=== 一键构建 Project Brain: ${repoName} (profile=${profile.profile}) ===`);
-    await runScan(repoName);
+    const scanOk = await runScan(repoName);
+    if (!scanOk) {
+      appendLog(`=== scan 失败，停止后续步骤 ===`);
+      setBrainRunning(null);
+      return;
+    }
     for (const mode of profile.allowedModes) {
-      await runCompileMode(repoName, mode);
+      const ok = await runCompileMode(repoName, mode);
+      // AI 未配置或编译失败：标记原因，继续尝试其他模式（不阻塞全流程）
+      if (!ok) {
+        appendLog(`  ⚠ ${mode} 未成功，后续步骤继续`);
+      }
     }
     await runOntology(repoName);
     await refreshBrain(repoName, selectedSpace.id);

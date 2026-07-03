@@ -11,9 +11,9 @@ module.exports = {
         ALLOW_HTTP_COOKIES: 'true',
         AI_BASE_URL: 'http://127.0.0.1:12345/v1',
         AI_MODEL: 'MiniMax-M2.7',
-        AI_API_KEY: process.env.AI_API_KEY || '',
+        AI_API_KEY: '2GwGk0i5ngO504uX6eXhl20hMFbsVsFsAZL6d3MpyJDIEHny',
         MEDIA_CRAWLER_BASE_URL: 'http://127.0.0.1:8080',
-        MEDIA_CRAWLER_ENABLED: 'false',
+        MEDIA_CRAWLER_ENABLED: 'true',
         PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
       },
       autorestart: true,
@@ -30,6 +30,8 @@ module.exports = {
       interpreter: 'python3',
       cwd: '/home/sz/workspace/tools/MediaCrawler',
       env: {
+	MEDIA_CRAWLER_ENABLED: 'true',
+	MEDIA_CRAWLER_BASE_URL: 'http://127.0.0.1:8080',
         MEDIA_CRAWLER_HOST: '127.0.0.1',
         MEDIA_CRAWLER_PORT: '8080',
       },
