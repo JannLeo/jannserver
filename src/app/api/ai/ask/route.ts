@@ -669,6 +669,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (semanticHits.length > 0) {
+    // 无论是否 boost，只取 top 8（防止 800 条 context 撑爆 AI prompt）
+    if (!rh) {
+      semanticHits = semanticHits.slice(0, 8);
+    }
     // 构造上下文：每条 hit 一段（docType/docId/score 标注）
     const contextParts: string[] = semanticHits.map((h, i) =>
       `[${i + 1}] docType=${h.docType} score=${h.score.toFixed(3)} docId=${h.docId}\n${h.content}`
