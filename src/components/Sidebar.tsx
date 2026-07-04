@@ -42,6 +42,7 @@ const navItems: [string, string, string, string][] = [
   ['/ask', '🤖', 'AI 问答', 'AI 知识库问答'],
   ['/video-analysis', '🎬', '视频分析', '视频分析工作台'],
   ['/brain', '🧠', 'Brain', 'WorldQuant BRAIN Alphas'],
+  ['/novel', '✍️', '小说', 'AI 小说创作'],
 ];
 
 export default function Sidebar() {

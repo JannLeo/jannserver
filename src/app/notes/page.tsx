@@ -26,7 +26,7 @@ export default function NotesPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar title="📝 知识库" />
+      <NavBar title="📝 笔记" />
       <main className="max-w-4xl mx-auto p-6">
         <div className="flex items-center justify-between mb-4">
           <Link href="/notes/new" className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">+ 新建笔记</Link>
