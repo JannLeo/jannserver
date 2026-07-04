@@ -127,7 +127,7 @@ export default function VideoAnalysisPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  const [tab, setTab] = useState<'list' | 'create'>('list');
+  const [tab, setTab] = useState<'list' | 'create' | 'agent-reach'>('list');
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -299,6 +299,12 @@ export default function VideoAnalysisPage() {
           >
             + 新建任务
           </button>
+          <button
+            onClick={() => setTab('agent-reach')}
+            className={`px-4 py-1.5 text-sm rounded-md transition ${tab === 'agent-reach' ? 'bg-blue-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            👁️ Agent Reach
+          </button>
         </div>
 
         {/* Create form */}
@@ -379,7 +385,183 @@ export default function VideoAnalysisPage() {
           </div>
         )}
 
-        {/* Job list */}
+        {/* Agent Reach Tab */}
+        {tab === 'agent-reach' && (
+          <div className="space-y-6">
+            {/* Header Card */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-xl flex-shrink-0 shadow-sm">
+                  👁️
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-bold text-slate-800">Agent Reach</h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    给你的 AI Agent 一键装上互联网能力 — YouTube、B站、Twitter、GitHub 等 13+ 平台
+                  </p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <a
+                      href="https://github.com/Panniantong/Agent-Reach"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      github.com/Panniantong/Agent-Reach ↗
+                    </a>
+                    <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-medium">v1.5.0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Install Command */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                <h3 className="font-semibold text-slate-700 text-sm">⚡ 快速安装</h3>
+                <p className="text-xs text-slate-400 mt-0.5">复制这条命令给你的 AI Agent（Claude Code / OpenClaw / Cursor 等）</p>
+              </div>
+              <div className="p-5">
+                <div className="bg-slate-900 rounded-lg px-4 py-3 font-mono text-xs text-green-400 overflow-x-auto">
+                  帮我安装 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/install.md
+                </div>
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  <a
+                    href="https://github.com/Panniantong/Agent-Reach"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
+                  >
+                    📄 查看 README
+                  </a>
+                  <a
+                    href="https://trendshift.io/repositories/24387"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
+                  >
+                    📈 GitHub Trending #1
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Supported Platforms */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                <h3 className="font-semibold text-slate-700 text-sm">🌐 支持的平台</h3>
+              </div>
+              <div className="p-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {[
+                    { icon: '🌐', name: '网页', desc: 'Jina Reader', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
+                    { icon: '📺', name: 'YouTube', desc: 'yt-dlp 字幕提取', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
+                    { icon: '📡', name: 'RSS', desc: 'feedparser', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
+                    { icon: '📦', name: 'GitHub', desc: 'gh CLI', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
+                    { icon: '🔍', name: '全网搜索', desc: 'Exa 语义搜索', tag: 'MCP 免费', tagColor: 'bg-blue-50 text-blue-600 border border-blue-200' },
+                    { icon: '📺', name: 'B站', desc: 'bili-cli / OpenCLI', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
+                    { icon: '🐦', name: 'Twitter/X', desc: 'twitter-cli / OpenCLI', tag: '需 Cookie', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
+                    { icon: '📖', name: 'Reddit', desc: 'OpenCLI / rdt-cli', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
+                    { icon: '📕', name: '小红书', desc: 'OpenCLI / xhs-cli', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
+                    { icon: '📘', name: 'Facebook', desc: 'OpenCLI', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
+                    { icon: '📷', name: 'Instagram', desc: 'OpenCLI', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
+                    { icon: '💼', name: 'LinkedIn', desc: 'linkedin-mcp / Jina', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
+                    { icon: '📈', name: '雪球', desc: '股票行情', tag: '需 Cookie', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
+                    { icon: '🎙️', name: '小宇宙播客', desc: 'Groq Whisper 转录', tag: '需 Groq Key', tagColor: 'bg-blue-50 text-blue-600 border border-blue-200' },
+                    { icon: '💻', name: 'V2EX', desc: '无需配置', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
+                  ].map(p => (
+                    <div key={p.name} className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition text-sm">
+                      <span className="text-lg flex-shrink-0">{p.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-slate-700 text-xs truncate">{p.name}</div>
+                        <div className="text-xs text-slate-400 mt-0.5 truncate">{p.desc}</div>
+                        <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded font-medium ${p.tagColor}`}>{p.tag}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Current Routing */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                <h3 className="font-semibold text-slate-700 text-sm">🔌 当前后端路由</h3>
+                <p className="text-xs text-slate-400 mt-0.5">每个平台自动选最优后端，失效时自动切换</p>
+              </div>
+              <div className="p-5">
+                <div className="space-y-2 text-xs font-mono">
+                  {[
+                    { platform: '网页', via: 'Jina Reader' },
+                    { platform: 'YouTube', via: 'yt-dlp' },
+                    { platform: 'B站（搜索+详情）', via: 'bili-cli (yt-dlp 已被 B站风控封死)' },
+                    { platform: 'B站字幕', via: 'OpenCLI' },
+                    { platform: '全网搜索', via: 'Exa via mcporter (MCP, 免费无需 Key)' },
+                    { platform: 'GitHub', via: 'gh CLI' },
+                    { platform: 'RSS', via: 'feedparser' },
+                    { platform: 'Twitter', via: 'twitter-cli → OpenCLI (兜底)' },
+                    { platform: '小红书', via: 'OpenCLI (桌面) → xiaohongshu-mcp (服务器)' },
+                    { platform: 'Reddit', via: 'OpenCLI (桌面) → rdt-cli' },
+                    { platform: 'Facebook / Instagram', via: 'OpenCLI (复用 Chrome 登录态)' },
+                    { platform: 'LinkedIn', via: 'linkedin-mcp → Jina Reader' },
+                    { platform: '雪球', via: 'Cookie-Editor / --from-browser chrome' },
+                    { platform: '小宇宙播客', via: 'Groq Whisper (免费 Key)' },
+                  ].map(r => (
+                    <div key={r.platform} className="flex items-center gap-3 py-1.5 border-b border-slate-50 last:border-0">
+                      <span className="w-28 text-slate-500 flex-shrink-0">{r.platform}</span>
+                      <span className="text-slate-300">→</span>
+                      <span className="text-slate-700 flex-1">{r.via}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Key Commands */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                <h3 className="font-semibold text-slate-700 text-sm">🛠️ 常用命令</h3>
+              </div>
+              <div className="p-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                  {[
+                    { cmd: 'agent-reach install --env=auto', desc: '一键安装核心渠道（零配置）' },
+                    { cmd: 'agent-reach install --channels=all', desc: '安装全部渠道（含需登录态）' },
+                    { cmd: 'agent-reach doctor', desc: '诊断所有渠道状态' },
+                    { cmd: 'agent-reach check-update', desc: '检查新版本' },
+                    { cmd: 'agent-reach configure twitter-cookies "..."', desc: '配置 Twitter Cookie' },
+                    { cmd: 'agent-reach configure groq-key gsk_xxx', desc: '配置小宇宙转录 Key' },
+                    { cmd: 'agent-reach uninstall', desc: '卸载所有' },
+                  ].map(c => (
+                    <div key={c.cmd} className="flex items-start gap-3 bg-slate-50 rounded-lg px-3 py-2.5">
+                      <code className="text-blue-600 flex-shrink-0">{c.cmd}</code>
+                      <span className="text-slate-400">— {c.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Why Agent Reach */}
+            <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl border border-slate-200 p-6">
+              <h3 className="font-semibold text-slate-700 text-sm mb-3">💡 为什么需要 Agent Reach</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                {[
+                  { title: '完全免费', desc: '所有工具开源、所有 API 免费。仅服务器代理 ~$1/月' },
+                  { title: '隐私安全', desc: 'Cookie 只存本地 ~/.agent-reach/，不上传不外传' },
+                  { title: '持续换代', desc: '平台封了自动换下一个后端，零操作（如 yt-dlp 被 B站封 → 切 bili-cli）' },
+                  { title: '兼容所有 Agent', desc: 'Claude Code、OpenClaw、Cursor、Windsurf…任何能跑命令行的 Agent 都能用' },
+                  { title: '自带诊断', desc: 'agent-reach doctor 一条命令告诉你哪个通、哪个不通' },
+                  { title: '安全模式', desc: '--safe 不修改系统，只列需求；--dry-run 预览所有操作' },
+                ].map(item => (
+                  <div key={item.title} className="bg-white rounded-lg p-3 border border-slate-100">
+                    <div className="font-medium text-slate-700 mb-1">{item.title}</div>
+                    <div className="text-slate-400">{item.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         {tab === 'list' && (
           <div>
             {jobs.length === 0 ? (
