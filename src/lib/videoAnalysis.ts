@@ -112,29 +112,30 @@ export async function getStatus(): Promise<StatusResult> {
   }
 
   // 2. /api/env/check 仅作 debugInfo，不影响 serviceReachable。
-  //    若失败（如 uv 依赖检查误报），记录原因供前端展示。
+  //    用 http.get 而非 fetch（undici 在有 HTTP_PROXY 时可能绕过 no_proxy）
   let envCheckOk: boolean | null = null;
   let envCheckError: string | null = null;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(`${baseUrl}/api/env/check`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      // MediaCrawler env/check 通常返回 { success: bool, ... } 或 { ok: bool }
-      const ok = !!(data?.success || data?.ok);
-      envCheckOk = ok;
-      if (!ok) {
-        envCheckError = String(data?.message || data?.error || 'Environment check failed');
-      }
-    } else {
-      envCheckOk = false;
-      envCheckError = `env/check 返回 ${res.status}`;
+    const http = require('http');
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = http.get(`${baseUrl}/api/env/check`, { timeout: 20000 }, (res) => {
+        const chunks: string[] = [];
+        res.on('data', (c: string) => chunks.push(c));
+        res.on('end', () => resolve(chunks.join('')));
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('超时')); });
+    });
+    let data: any = null;
+    try { data = JSON.parse(body); } catch { data = null; }
+    const ok = !!(data?.success || data?.ok);
+    envCheckOk = ok;
+    if (!ok) {
+      envCheckError = String(data?.message || data?.error || 'Environment check failed');
     }
-  } catch (err: any) {
+  } catch {
     envCheckOk = false;
-    envCheckError = err.name === 'AbortError' ? 'env/check 超时' : (err.message || 'env/check 请求失败');
+    envCheckError = 'env/check 请求失败';
   }
 
   return {

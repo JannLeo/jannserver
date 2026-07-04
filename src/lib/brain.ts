@@ -72,10 +72,16 @@ export async function loginBrain(): Promise<{
     });
     clearTimeout(timeout);
 
-    if (res.status === 201) {
+    if (res.status === 201 || res.status === 204) {
+      // 201=新会话, 204=已有有效会话
+      const data = await res.json().catch(() => ({}));
       cookieStr = parseSetCookie(res.headers);
-      sessionExpiry = Date.now() + 3600 * 1000; // 先设 1h，ensureSession 会精确化
-      return { ok: true };
+      const expiry = typeof data?.token?.expiry === 'number' ? data.token.expiry * 1000 : 3600 * 1000;
+      sessionExpiry = Date.now() + expiry;
+      return {
+        ok: true,
+        user: data?.user ?? null,
+      };
     }
     if (res.status === 401) {
       const wwwAuth = res.headers.get('www-authenticate') || '';
@@ -227,7 +233,7 @@ export async function syncBrainAlphas(): Promise<{
 }> {
   initDb();
 
-  // 1. 登录
+  // 1. 登录（返回 user.id）
   const login = await loginBrain();
   if (!login.ok) {
     return {
@@ -252,11 +258,9 @@ export async function syncBrainAlphas(): Promise<{
     const settings = a.settings || {};
     const checks = is.checks || [];
 
-    // 对未提交 alpha 拉 self-corr（已提交的不需要）
+    // self-corr 只在详情页按需拉，此处跳过以避免 85 个额外 API 调用拖慢同步
+    // （BRAIN API 限速 5req/min，85 个请求要等 17 分钟）
     let selfCorrMax: string | null = null;
-    if (a.status === 'UNSUBMITTED') {
-      selfCorrMax = await fetchSelfCorr(a.id);
-    }
 
     const row: any = {
       id: a.id,
@@ -295,29 +299,24 @@ export async function syncBrainAlphas(): Promise<{
       .run();
   }
 
-  // 4. 拉 user info
+  // 4. 保存 user info（来自登录响应 /users/me 备用）
   let userInfoSynced = false;
-  try {
-    const userRes = await brainGet('/users/me');
-    if (userRes.ok) {
-      const userData = await userRes.json();
-      // 单行覆盖：先删后插
-      db.delete(brainUserInfo).run();
-      db.insert(brainUserInfo)
-        .values({
-          userId: userData.id || '',
-          email: userData.email || '',
-          displayName: userData.displayName || userData.email || '',
-          rawJson: JSON.stringify(userData),
-          lastSyncAt: now,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-      userInfoSynced = true;
-    }
-  } catch (err) {
-    console.error('[brain] fetch user info failed:', err);
+  const brainEmail = process.env.BRAIN_CREDENTIAL_EMAIL || '';
+  const userIdFromLogin = login.user?.id || '';
+  if (userIdFromLogin || brainEmail) {
+    db.delete(brainUserInfo).run();
+    db.insert(brainUserInfo)
+      .values({
+        userId: userIdFromLogin,
+        email: brainEmail,
+        displayName: userIdFromLogin || brainEmail,
+        rawJson: JSON.stringify({ id: userIdFromLogin, source: 'login' }),
+        lastSyncAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    userInfoSynced = true;
   }
 
   return {
@@ -344,12 +343,19 @@ export function getBrainStatus() {
       .prepare("SELECT COUNT(*) as c FROM brain_alphas WHERE status='ACTIVE'")
       .get() as any
   ).c;
+  // lastSyncAt: 优先用 brain_user_info.last_sync_at，否则 fallback 到 brain_alphas.max(synced_at)
   const userInfo = rawSqlite
     .prepare(
       'SELECT user_id, email, display_name, last_sync_at FROM brain_user_info LIMIT 1'
     )
     .get() as any;
-  const lastSyncAt = userInfo?.last_sync_at || null;
+  let lastSyncAt = userInfo?.last_sync_at || null;
+  if (!lastSyncAt) {
+    const row = rawSqlite
+      .prepare('SELECT max(synced_at) as m FROM brain_alphas')
+      .get() as any;
+    lastSyncAt = row?.m || null;
+  }
 
   return {
     configured: isBrainConfigured(),
