@@ -2,64 +2,57 @@
 /**
  * Embedding 向量化 + 语义检索
  *
- * 通过 AI_BASE_URL/v1/embeddings（OpenAI 兼容）算向量，存到 SQLite 的 embeddings 表。
- * 检索时全表扫描做 cosine 相似度，数据量 <10 万 chunk JS 端够用。
+ * 通过本地 Python 脚本（纯 stdlib）算向量，存到 SQLite 的 embeddings 表。
+ * 无需外部 API / GPU / numpy。
  */
 
 import { db, sqlite, initDb } from './db/index';
 import { embeddings } from './db/schema';
 import { eq, and } from 'drizzle-orm';
 import { chunkMarkdown, type Chunk } from './chunk';
-
-const EMBED_MODEL = process.env.EMBEDDING_MODEL || 'text-embedding-3-small';
-const AI_BASE_URL = (process.env.AI_BASE_URL || '').trim();
-const AI_API_KEY = (process.env.AI_API_KEY || '').trim();
+import { execSync } from 'child_process';
 
 export type EmbeddingDocType = 'wiki_page' | 'repo_doc' | 'obsidian_note';
 
-/**
- * 调 AI_BASE_URL/v1/embeddings 批量算向量。
- * OpenAI 兼容接口：POST {model, input: string[]} → {data: [{embedding: number[]}]}
- *
- * 若 batch > 32，分批调用避免单次请求过大。
- */
-export async function embed(texts: string[]): Promise<number[][]> {
+/** 调用本地 embed.py 批量算向量 */
+async function embedLocal(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
-  if (!AI_BASE_URL || !AI_API_KEY) {
-    throw new Error('AI_BASE_URL/AI_API_KEY not configured for embeddings');
-  }
 
-  const BATCH = 32;
-  const result: number[][] = [];
+  const script = process.env.EMBED_SCRIPT || '/home/sz/workspace/scripts/embed.py';
+  const inputJson = JSON.stringify({ input: texts });
 
-  for (let i = 0; i < texts.length; i += BATCH) {
-    const batch = texts.slice(i, i + BATCH);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
-    try {
-      const res = await fetch(`${AI_BASE_URL}/embeddings`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${AI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ model: EMBED_MODEL, input: batch }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`embed API ${res.status}: ${errText.slice(0, 200)}`);
+  return new Promise((resolve, reject) => {
+    const child = require('child_process').spawn('python3', [script], {
+      timeout: 30000,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+    child.on('close', (code: number) => {
+      if (code !== 0) {
+        reject(new Error(`embed.py exited ${code}: ${stderr}`));
+        return;
       }
-      const data = await res.json();
-      const vecs: number[][] = (data.data || []).map((d: any) => d.embedding as number[]);
-      result.push(...vecs);
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
+      try {
+        const data = JSON.parse(stdout);
+        if (!data.data || !Array.isArray(data.data)) {
+          reject(new Error('embed.py returned unexpected payload'));
+          return;
+        }
+        resolve(data.data.map((d: any) => d.embedding as number[]));
+      } catch (e: any) {
+        reject(new Error(`embed.py JSON parse failed at char ${stdout.slice(0, 50)}: ${e.message}`));
+      }
+    });
 
-  return result;
+    child.on('error', reject);
+    child.stdin.write(inputJson, () => { child.stdin.end(); });
+  });
 }
 
 /**
@@ -83,7 +76,7 @@ export async function updateEmbeddings(
   if (finalChunks.length === 0) return;
 
   // 批量 embed
-  const vecs = await embed(finalChunks.map(c => c.text));
+  const vecs = await embedLocal(finalChunks.map(c => c.text));
   if (vecs.length !== finalChunks.length) {
     console.error('[embeddings] vec count mismatch:', vecs.length, 'expected', finalChunks.length);
     return;
@@ -99,7 +92,7 @@ export async function updateEmbeddings(
         chunkIndex: finalChunks[i].idx,
         content: finalChunks[i].text,
         embeddingJson: JSON.stringify(vecs[i]),
-        model: EMBED_MODEL,
+        model: 'local-ngram-384',
         createdAt: now,
         updatedAt: now,
       })
@@ -137,7 +130,7 @@ export async function semanticSearch(
 ): Promise<SemanticHit[]> {
   initDb();
 
-  const [qVec] = await embed([query]);
+  const [qVec] = await embedLocal([query]);
   if (!qVec || qVec.length === 0) return [];
 
   const types = opts?.docTypes || ['wiki_page', 'repo_doc', 'obsidian_note'];
