@@ -601,9 +601,11 @@ async function buildSourcesFromSemanticHits(hits: SemanticHit[]): Promise<any[]>
 
 export async function POST(req: NextRequest) {
   let question = '';
+  let repoNameFromBody: string | null = null;
   try {
     const body = await req.json();
     question = typeof body.question === 'string' ? body.question.trim() : '';
+    repoNameFromBody = typeof body.repoName === 'string' ? body.repoName.trim() : null;
     if (!question) return NextResponse.json({ error: 'question 是必填项' }, { status: 400 });
   } catch { return NextResponse.json({ error: '无效的请求体' }, { status: 400 }); }
 
@@ -645,10 +647,10 @@ export async function POST(req: NextRequest) {
     console.error('[ai.ask] semanticSearch failed (will fall back to FTS):', err);
   }
 
-  // Repo hint 加权：命中有明确 repo 偏向时，大幅提升对应来源的分数
+  // Repo hint 加权：优先使用用户 UI 选择的 repo，其次用 detectRepoHint
   // 因为 n-gram embedding 对通用词（如 fitness）会匹配 CS 课程的 fitness function，
   // 而 WorldQuant 的 fitness 反而被压低，需要足够大的 boost 才能扭转排序
-  const rh = detectRepoHint(question);
+  const rh = repoNameFromBody ?? detectRepoHint(question);
   if (rh && semanticHits.length > 0) {
     for (const h of semanticHits) {
       let boost = 0;
@@ -717,7 +719,7 @@ ${contextParts.join('\n\n---\n\n')}`;
   }
   // ────────────────────────────────────────────────────────────────
 
-  const repoHint = detectRepoHint(question);
+  const repoHint = repoNameFromBody ?? detectRepoHint(question);
   const queries = buildSearchQueries(question);
   console.log('[ai.ask] question=', question);
   console.log('[ai.ask] repoHint=', repoHint);
