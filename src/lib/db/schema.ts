@@ -344,3 +344,50 @@ export const brainUserInfo = sqliteTable("brain_user_info", {
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+export const novels = sqliteTable("novels", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull().default("未命名小说"),
+  author: text("author").notNull().default(""),
+  genre: text("genre").notNull().default(""),
+  synopsis: text("synopsis").notNull().default(""),
+  worldSetting: text("world_setting").notNull().default(""),   // 世界观
+  genreSetting: text("genre_setting").notNull().default(""),   // 题材设定
+  characterSettings: text("character_settings").notNull().default(""), // 角色设定 JSON
+  currentPhase: text("current_phase").notNull().default("setup"), // setup | outline | draft | review | archive
+  currentChapter: integer("current_chapter").notNull().default(0),
+  totalWords: integer("total_words").notNull().default(0),
+  wordCountTarget: integer("word_count_target").notNull().default(300000),
+  status: text("status").notNull().default("writing"), // writing | paused | finished
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const novelChapters = sqliteTable("novel_chapters", {
+  id: text("id").primaryKey(),
+  novelId: text("novel_id").notNull().references(() => novels.id),
+  volumeNumber: integer("volume_number").notNull().default(1),
+  chapterNumber: integer("chapter_number").notNull().default(1),
+  title: text("title").notNull().default(""),
+  outline: text("outline").notNull().default(""),     // 章纲
+  content: text("content").notNull().default(""),   // 正文
+  wordCount: integer("word_count").notNull().default(0),
+  status: text("status").notNull().default("outline"), // outline | draft | reviewing | done
+  order: integer("order").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const novelVolumes = sqliteTable("novel_volumes", {
+  id: text("id").primaryKey(),
+  novelId: text("novel_id").notNull().references(() => novels.id),
+  volumeNumber: integer("volume_number").notNull().default(1),
+  title: text("title").notNull().default(""),
+  synopsis: text("synopsis").notNull().default(""),
+  outline: text("outline").notNull().default(""),
+  wordCountTarget: integer("word_count_target").notNull().default(50000),
+  status: text("status").notNull().default("planning"), // planning | writing | done
+  order: integer("order").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
