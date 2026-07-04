@@ -10,7 +10,7 @@ function phaseLabel(p: string) {
 }
 
 function phaseColor(p: string) {
-  return { setup: 'bg-blue-50 text-blue-600 border-blue-200',
+  return { setup: 'bg-teal-50 text-teal-700 border-teal-200',
     outline: 'bg-purple-50 text-purple-600 border-purple-200',
     draft: 'bg-green-50 text-green-600 border-green-200',
     review: 'bg-amber-50 text-amber-600 border-amber-200',
@@ -53,7 +53,7 @@ export default function NovelsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="✍️ AI小说创作" />
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
 
@@ -65,18 +65,18 @@ export default function NovelsPage() {
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg text-sm font-medium hover:from-indigo-600 hover:to-purple-600 shadow-sm"
+            className="px-4 py-2 app-button-primary rounded-lg text-sm font-medium shadow-sm"
           >
             + 新建小说
           </button>
         </div>
 
         {/* Agent Pipeline Banner */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-6 overflow-x-auto">
+        <div className="app-card p-4 mb-6 overflow-x-auto">
           <div className="text-xs text-slate-400 mb-2 font-medium">8 Agent 写作流水线</div>
           <div className="flex items-center gap-1 min-w-max">
             {[
-              { icon: '🗺️', name: '总指挥', desc: 'novel-agent', color: 'bg-blue-50 border-blue-100' },
+              { icon: '🗺️', name: '总指挥', desc: 'novel-agent', color: 'bg-teal-50 border-teal-100' },
               { icon: '📝', name: '设定写入', desc: 'updater', color: 'bg-violet-50 border-violet-100' },
               { icon: '📖', name: '卷纲规划', desc: 'volume-planner', color: 'bg-purple-50 border-purple-100' },
               { icon: '📑', name: '章纲规划', desc: 'chapter-planner', color: 'bg-fuchsia-50 border-fuchsia-100' },
@@ -111,10 +111,10 @@ export default function NovelsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {novels.map(n => (
-              <div key={n.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden hover:border-indigo-200 hover:shadow-md transition-all">
+              <div key={n.id} className="app-card overflow-hidden hover:border-teal-200 hover:shadow-md transition-all">
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <Link href={`/novel/${n.id}`} className="text-base font-bold text-slate-800 hover:text-indigo-600 transition-colors">
+                    <Link href={`/novel/${n.id}`} className="text-base font-bold text-slate-800 hover:text-teal-700 transition-colors">
                       {n.title || '未命名'}
                     </Link>
                     <button onClick={() => handleDelete(n.id)} className="text-slate-300 hover:text-red-400 text-sm flex-shrink-0">✕</button>
@@ -136,14 +136,14 @@ export default function NovelsPage() {
                   {/* Word count bar */}
                   <div className="mt-2 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full transition-all"
+                      className="h-full bg-gradient-to-r from-[#173f3c] to-teal-600 rounded-full transition-all"
                       style={{ width: `${Math.min(100, ((n.totalWords || 0) / Number(n.wordCountTarget || 1)) * 100)}%` }}
                     />
                   </div>
                 </div>
                 <Link
                   href={`/novel/${n.id}`}
-                  className="block w-full py-2.5 text-center text-xs font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 transition-colors"
+                  className="block w-full py-2.5 text-center text-xs font-medium text-white bg-gradient-to-r from-[#173f3c] to-teal-700 transition-colors"
                 >
                   打开写作台 →
                 </Link>
@@ -156,7 +156,7 @@ export default function NovelsPage() {
       {/* Create Modal */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowCreate(false)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+          <div className="app-card shadow-[0_30px_90px_rgba(39,32,24,0.18)] max-w-md w-full" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-800">新建小说</h3>
               <button onClick={() => setShowCreate(false)} className="text-slate-400 hover:text-slate-600 text-xl">✕</button>
@@ -169,7 +169,7 @@ export default function NovelsPage() {
                   value={form.title}
                   onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
                   placeholder="例如：修仙长生传"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  className="w-full app-input rounded-lg px-3 py-2 text-sm focus:outline-none"
                 />
               </div>
               <div>
@@ -177,7 +177,7 @@ export default function NovelsPage() {
                 <select
                   value={form.genre}
                   onChange={e => setForm(f => ({ ...f, genre: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  className="w-full app-input rounded-lg px-3 py-2 text-sm focus:outline-none"
                 >
                   {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
@@ -188,18 +188,18 @@ export default function NovelsPage() {
                   type="number"
                   value={form.wordCountTarget}
                   onChange={e => setForm(f => ({ ...f, wordCountTarget: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  className="w-full app-input rounded-lg px-3 py-2 text-sm focus:outline-none"
                 />
               </div>
             </div>
             <div className="px-5 py-4 border-t border-slate-100 flex gap-2">
               <button
                 onClick={handleCreate}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg text-sm font-medium hover:from-indigo-600 hover:to-purple-600"
+                className="flex-1 px-4 py-2 app-button-primary rounded-lg text-sm font-medium"
               >
                 创建并开始写作
               </button>
-              <button onClick={() => setShowCreate(false)} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm hover:bg-slate-50">
+              <button onClick={() => setShowCreate(false)} className="px-4 py-2 app-button-secondary rounded-lg text-sm hover:bg-slate-50">
                 取消
               </button>
             </div>

@@ -47,11 +47,11 @@ function formatBytes(n: number): string {
 }
 
 function languageColor(lang: string): string {
-  if (lang === 'c') return 'bg-blue-100 text-blue-700';
-  if (lang === 'python') return 'bg-green-100 text-green-700';
-  if (lang === 'ts') return 'bg-purple-100 text-purple-700';
-  if (lang === 'json') return 'bg-amber-100 text-amber-700';
-  if (lang === 'yaml') return 'bg-pink-100 text-pink-700';
+  if (lang === 'c') return 'bg-teal-50 text-teal-700';
+  if (lang === 'python') return 'bg-emerald-50 text-emerald-700';
+  if (lang === 'ts') return 'bg-stone-100 text-stone-700';
+  if (lang === 'json') return 'bg-amber-50 text-amber-700';
+  if (lang === 'yaml') return 'bg-rose-50 text-rose-700';
   return 'bg-gray-100 text-gray-700';
 }
 
@@ -129,7 +129,7 @@ export default function CodePage() {
       if (r) {
         setSelectedRepo(r);
         if (fid) {
-          setTimeout(() => loadFileDetail(Number(fid)), 200);
+          loadFileDetail(Number(fid), r.id);
         }
       }
     }
@@ -173,11 +173,11 @@ export default function CodePage() {
     }
   };
 
-  const loadFileDetail = async (fileId: number) => {
-    if (!selectedRepo) return;
+  const loadFileDetail = async (fileId: number, repoId = selectedRepo?.id) => {
+    if (!repoId) return;
     setLoadingFile(true);
     try {
-      const res = await fetch(`/api/code-files?repoId=${selectedRepo.id}&fileId=${fileId}`);
+      const res = await fetch(`/api/code-files?repoId=${repoId}&fileId=${fileId}`);
       if (!res.ok) {
         setFileDetail(null);
         return;
@@ -188,7 +188,7 @@ export default function CodePage() {
       window.history.replaceState(
         null,
         '',
-        `/code?repoId=${selectedRepo.id}&fileId=${fileId}`
+        `/code?repoId=${repoId}&fileId=${fileId}`
       );
       // 滚动到 ?line= 指定行
       const params = new URLSearchParams(window.location.search);
@@ -212,12 +212,12 @@ export default function CodePage() {
   const lines = fileDetail?.content.split('\n') || [];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="📦 项目代码" />
 
       <div className="flex h-[calc(100vh-48px)]">
         {/* Left: Repo select + file list */}
-        <div className="w-80 border-r border-slate-200 bg-white overflow-y-auto flex flex-col">
+        <div className="w-80 border-r border-stone-200/70 bg-white/45 overflow-y-auto flex flex-col">
           {/* Repo selector */}
           <div className="p-3 border-b border-slate-200">
             <label className="text-xs font-semibold text-slate-600 block mb-1">Repo</label>
@@ -227,7 +227,7 @@ export default function CodePage() {
                 const r = repos.find((x) => x.id === Number(e.target.value));
                 if (r) setSelectedRepo(r);
               }}
-              className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400"
+              className="w-full px-2 py-1.5 text-sm app-input rounded-lg focus:outline-none "
             >
               <option value="">— 选择 repo —</option>
               {repos.map((r) => (
@@ -245,7 +245,7 @@ export default function CodePage() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="搜索文件路径或摘要..."
-              className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400"
+              className="w-full px-3 py-1.5 text-sm app-input rounded-lg focus:outline-none "
             />
           </div>
 
@@ -259,7 +259,7 @@ export default function CodePage() {
               <p className="text-sm text-slate-400">
                 尚无代码文件。
                 <br />
-                请先到 <a href="/wiki" className="text-blue-500 underline">/wiki</a> 触发 Project Brain 扫描。
+                请先到 <a href="/wiki" className="text-teal-700 underline">/wiki</a> 触发 Project Brain 扫描。
               </p>
             ) : (
               <div className="space-y-3">
@@ -272,7 +272,7 @@ export default function CodePage() {
                           key={f.id}
                           className={`p-2 rounded-lg border cursor-pointer transition ${
                             selectedFileId === f.id
-                              ? 'border-blue-400 bg-blue-50'
+                              ? 'border-teal-500/50 bg-teal-50'
                               : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
                           }`}
                           onClick={() => loadFileDetail(f.id)}
@@ -347,7 +347,7 @@ export default function CodePage() {
                       title={s.signature}
                     >
                       <span className="text-slate-400">{s.symbolType}</span>{' '}
-                      <span className="text-blue-300">{s.name}</span>
+                      <span className="text-teal-200">{s.name}</span>
                       <span className="text-slate-500"> L{s.startLine}</span>
                     </a>
                   ))}

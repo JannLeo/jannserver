@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import NavBar from '@/components/NavBar';
 
 export default function ProjectsPage() {
@@ -24,30 +23,30 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="📁 项目" />
-      <main className="max-w-4xl mx-auto p-6">
+      <main className="page-container max-w-4xl">
         <div className="mb-6">
-          <button onClick={() => setShowNew(!showNew)} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">+ 新建项目</button>
+          <button onClick={() => setShowNew(!showNew)} className="app-button-primary px-4 py-2 rounded-lg text-sm">+ 新建项目</button>
         </div>
         {showNew && (
-          <div className="mb-6 bg-white rounded-xl p-4 border border-slate-200 flex gap-2">
-            <input className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+          <div className="mb-6 app-card p-4 flex gap-2">
+            <input className="flex-1 app-input rounded-lg px-4 py-2 text-sm focus:outline-none"
               placeholder="项目名称" value={newName} onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreate()} />
-            <button onClick={handleCreate} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">创建</button>
+            <button onClick={handleCreate} className="app-button-primary px-4 py-2 rounded-lg text-sm">创建</button>
           </div>
         )}
         <div className="grid gap-4 md:grid-cols-2">
           {projects.map(p => (
-            <Link key={p.id} href={`/projects/${p.id}`}
-              className="bg-white rounded-xl p-5 border border-slate-100 hover:border-blue-200 hover:shadow-sm transition block">
+            <article key={p.id} className="app-card p-5 transition">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full" style={{ backgroundColor: p.color }} />
                 <span className="font-medium">{p.name}</span>
               </div>
               {p.description && <p className="text-sm text-slate-500 mt-1">{p.description}</p>}
-            </Link>
+              <p className="text-xs text-slate-400 mt-3">项目详情页尚未启用，先在任务/笔记中按项目使用。</p>
+            </article>
           ))}
         </div>
       </main>

@@ -69,7 +69,7 @@ export default function AskSection() {
   };
 
   return (
-    <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100 mt-6">
+    <div className="app-card p-5 shadow-sm border border-slate-100 mt-6">
       <h2 className="font-semibold text-lg mb-4">🤖 AI 知识库问答</h2>
       <div className="flex gap-2 mb-4">
         <input
@@ -78,13 +78,13 @@ export default function AskSection() {
           onChange={e => setQuestion(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="输入问题，搜索知识库..."
-          className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          className="flex-1 px-4 py-2 app-input rounded-lg text-sm focus:outline-none"
           disabled={loading}
         />
         <button
           onClick={handleSubmit}
           disabled={loading || !question.trim()}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 app-button-primary rounded-lg text-sm font-medium  disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? '查询中...' : '提问'}
         </button>
@@ -102,7 +102,7 @@ export default function AskSection() {
         <p className="text-slate-400 text-sm animate-pulse">正在搜索知识库并生成回答...</p>
       )}
       {result && result.configured && result.answer && (
-        <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+        <div className="mt-4 p-4 app-panel rounded-lg border border-slate-100">
           <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{result.answer}</div>
           {result.sources.length > 0 && (
             <div className="mt-3 pt-3 border-t border-slate-200">

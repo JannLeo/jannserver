@@ -111,9 +111,9 @@ const PAGE_TYPE_LABELS: Record<string, string> = {
 };
 
 function pageTypeBadgeClass(pt: string): string {
-  if (pt === 'project_overview') return 'bg-blue-50 text-blue-700 border-blue-200';
+  if (pt === 'project_overview') return 'bg-teal-50 text-blue-700 border-teal-200';
   if (pt === 'module_summary') return 'bg-purple-50 text-purple-700 border-purple-200';
-  if (pt === 'feature_summary') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  if (pt === 'feature_summary') return 'bg-teal-50 text-indigo-700 border-teal-200';
   if (pt === 'config_summary') return 'bg-amber-50 text-amber-700 border-amber-200';
   if (pt === 'commit_summary') return 'bg-teal-50 text-teal-700 border-teal-200';
   if (pt === 'bug_history') return 'bg-red-50 text-red-700 border-red-200';
@@ -552,7 +552,7 @@ export default function WikiPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="📚 LLM-Wiki 知识层" />
 
       <div className="flex h-[calc(100vh-48px)]">
@@ -577,7 +577,7 @@ export default function WikiPage() {
                     key={s.id}
                     className={`p-3 rounded-lg border cursor-pointer transition ${
                       selectedSpace?.id === s.id
-                        ? 'border-blue-400 bg-blue-50'
+                        ? 'border-teal-500/50 bg-teal-50'
                         : 'border-slate-200 hover:border-slate-300 bg-white'
                     }`}
                     onClick={() => setSelectedSpace(s)}
@@ -625,7 +625,7 @@ export default function WikiPage() {
                     className={`text-xs px-2 py-1 rounded ${
                       compileAllRunning || !selectedSpace
                         ? 'bg-slate-200 text-slate-400'
-                        : 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'app-button-primary '
                     }`}
                   >
                     {compileAllRunning ? '编译中...' : '编译全部缺失'}
@@ -642,7 +642,7 @@ export default function WikiPage() {
                           ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
                           : compilingSlug !== null || !selectedSpace
                           ? 'bg-slate-100 border-slate-200 text-slate-400'
-                          : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700'
                       }`}
                     >
                       {compilingSlug === c.slug ? '⏳' : ''} {c.title}
@@ -752,7 +752,7 @@ export default function WikiPage() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="搜索 wiki page..."
-              className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400"
+              className="w-full px-3 py-1.5 text-sm app-input rounded-lg focus:outline-none "
             />
           </div>
 
@@ -777,7 +777,7 @@ export default function WikiPage() {
                       key={p.id}
                       className={`p-3 rounded-lg border cursor-pointer transition ${
                         selectedPage?.id === p.id
-                          ? 'border-blue-400 bg-blue-50'
+                          ? 'border-teal-500/50 bg-teal-50'
                           : 'border-slate-200 hover:border-slate-300 bg-white'
                       }`}
                       onClick={() => loadPage(p.id)}
@@ -847,7 +847,7 @@ export default function WikiPage() {
                 {selectedPage.tags && selectedPage.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {selectedPage.tags.map((t, i) => (
-                      <span key={i} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">
+                      <span key={i} className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded">
                         #{t}
                       </span>
                     ))}
@@ -892,7 +892,7 @@ export default function WikiPage() {
                           {l.toPageId && !l.unresolved ? (
                             <button
                               onClick={() => loadPage(l.toPageId!)}
-                              className="text-xs text-blue-600 hover:underline"
+                              className="text-xs text-teal-700 hover:underline"
                             >
                               → {l.title || l.linkText}
                             </button>
@@ -915,7 +915,7 @@ export default function WikiPage() {
                           {l.fromPageId ? (
                             <button
                               onClick={() => loadPage(l.fromPageId)}
-                              className="text-xs text-blue-600 hover:underline"
+                              className="text-xs text-teal-700 hover:underline"
                             >
                               ← {l.title || l.linkText}
                             </button>

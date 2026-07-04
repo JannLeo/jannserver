@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/index';
 import { novelChapters } from '@/lib/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 export const runtime = 'nodejs';
@@ -64,7 +64,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     for (const k of allowed) {
       if (body[k] !== undefined) updates[k] = body[k];
     }
-    db.update(novelChapters).set(updates).where(eq(novelChapters.id, chapterId)).run();
+    const result = db.update(novelChapters)
+      .set(updates)
+      .where(and(eq(novelChapters.id, chapterId), eq(novelChapters.novelId, params.id)))
+      .run();
+    if (result.changes === 0) return NextResponse.json({ error: '章节不存在' }, { status: 404 });
+
     const chapter = db.select().from(novelChapters).where(eq(novelChapters.id, chapterId)).get();
     return NextResponse.json(chapter);
   } catch (err: any) {
@@ -77,7 +82,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     const { searchParams } = new URL(req.url);
     const chapterId = searchParams.get('chapterId');
     if (!chapterId) return NextResponse.json({ error: '缺少 chapterId' }, { status: 400 });
-    db.delete(novelChapters).where(eq(novelChapters.id, chapterId)).run();
+    const result = db.delete(novelChapters)
+      .where(and(eq(novelChapters.id, chapterId), eq(novelChapters.novelId, params.id)))
+      .run();
+    if (result.changes === 0) return NextResponse.json({ error: '章节不存在' }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

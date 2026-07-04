@@ -229,7 +229,8 @@ CREATE TABLE IF NOT EXISTS ontology_relations (
   to_entity_id INTEGER NOT NULL REFERENCES ontology_entities(id),
   confidence TEXT NOT NULL DEFAULT 'medium',
   source_refs_json TEXT NOT NULL DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS video_analysis_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

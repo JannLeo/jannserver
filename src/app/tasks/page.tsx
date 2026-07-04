@@ -95,22 +95,22 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="✅ 任务" />
       <main className="max-w-3xl mx-auto p-6">
         <div className="flex gap-2 mb-6">
           {['all', 'today', 'done'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-sm ${filter === f ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+              className={`px-3 py-1.5 rounded-lg text-sm ${filter === f ? 'app-button-primary' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               {f === 'all' ? '全部' : f === 'today' ? '今日' : '已完成'}
             </button>
           ))}
         </div>
         <div className="flex gap-2 mb-6">
-          <input className="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          <input className="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none"
             placeholder="添加新任务..." value={newTitle} onChange={e => setNewTitle(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleCreate()} />
-          <button onClick={handleCreate} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">添加</button>
+          <button onClick={handleCreate} className="app-button-primary px-4 py-2 rounded-lg text-sm">添加</button>
         </div>
 
         {/* 委托结果提示 */}
@@ -151,9 +151,9 @@ export default function TasksPage() {
             const projectName = getProjectName(t.projectId);
             const isDelegating = delegatingId === t.id;
             return (
-            <div key={t.id} className="bg-white rounded-lg px-4 py-3 border border-slate-100 hover:border-blue-200 hover:shadow-sm transition-all duration-200 flex items-center gap-3 group">
+            <div key={t.id} className="app-card px-4 py-3 border border-slate-100 hover:border-teal-500/30 hover:shadow-sm transition-all duration-200 flex items-center gap-3 group">
               <button onClick={() => handleStatus(t.id, t.status)}
-                className={`w-5 h-5 rounded border-2 flex items-center justify-center text-xs transition-all ${t.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-blue-400'}`}>
+                className={`w-5 h-5 rounded border-2 flex items-center justify-center text-xs transition-all ${t.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-teal-500/60'}`}>
                 {t.status === 'done' && '✓'}
               </button>
               <div className="flex-1 min-w-0">
@@ -175,7 +175,7 @@ export default function TasksPage() {
                 <button
                   onClick={() => setDelegateConfirm({ id: t.id, title: t.title })}
                   disabled={isDelegating}
-                  className="text-xs px-2.5 py-1 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-200 hover:from-indigo-100 hover:to-purple-100 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 flex items-center gap-1 flex-shrink-0"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-gradient-to-r from-teal-50 to-amber-50 text-teal-700 border border-teal-200 hover:from-teal-100 hover:to-amber-100 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 flex items-center gap-1 flex-shrink-0"
                   title="交给 AI 完成"
                 >
                   {isDelegating ? (
@@ -199,13 +199,13 @@ export default function TasksPage() {
       {/* 确认弹窗 */}
       {delegateConfirm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setDelegateConfirm(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
+          <div className="app-card shadow-[0_30px_90px_rgba(39,32,24,0.18)] max-w-sm w-full" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-slate-100">
               <h3 className="font-semibold text-slate-800">🤖 确认交给 AI 处理</h3>
             </div>
             <div className="p-5">
               <p className="text-sm text-slate-600 mb-1">确定要将以下任务交给 <strong>AI Agent</strong> 处理吗？</p>
-              <div className="bg-slate-50 rounded-lg px-3 py-2.5 text-sm text-slate-700 font-medium mt-3 mb-1">
+              <div className="app-panel rounded-lg px-3 py-2.5 text-sm text-slate-700 font-medium mt-3 mb-1">
                 {delegateConfirm.title}
               </div>
               <p className="text-xs text-slate-400">任务将标记为已完成，AI Agent 会在后台执行并在完成后通知你。</p>
@@ -216,13 +216,13 @@ export default function TasksPage() {
                   const t = tasks.find(x => x.id === delegateConfirm.id);
                   handleDelegate(delegateConfirm.id, delegateConfirm.title, getProjectName(t?.projectId ?? null));
                 }}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg text-sm font-medium hover:from-indigo-600 hover:to-purple-600"
+                className="flex-1 px-4 py-2 app-button-primary rounded-lg text-sm font-medium"
               >
                 ✅ 确认，交给 AI
               </button>
               <button
                 onClick={() => setDelegateConfirm(null)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm hover:bg-slate-50"
+                className="px-4 py-2 app-button-secondary rounded-lg text-sm hover:bg-slate-50"
               >
                 取消
               </button>

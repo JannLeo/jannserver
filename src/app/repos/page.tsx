@@ -245,7 +245,7 @@ export default function ReposPage() {
   const hasMore = showing < docsTotal;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="📚 GitHub 知识库" />
 
       <div className="bg-white px-6 py-2 border-b border-slate-100">
@@ -263,7 +263,7 @@ export default function ReposPage() {
             ) : repos.length === 0 ? (
               <div>
                 <p className="text-sm text-slate-400 mb-3">尚未配置仓库</p>
-                <button onClick={ensureRepos} className="w-full bg-blue-500 text-white rounded-lg py-2 text-sm hover:bg-blue-600">
+                <button onClick={ensureRepos} className="w-full app-button-primary rounded-lg py-2 text-sm ">
                   添加三个知识库仓库
                 </button>
               </div>
@@ -273,7 +273,7 @@ export default function ReposPage() {
                   key={repo.id}
                   className={`p-3 rounded-lg border cursor-pointer transition ${
                     selectedRepo?.id === repo.id
-                      ? 'border-blue-400 bg-blue-50'
+                      ? 'border-teal-500/50 bg-teal-50'
                       : 'border-slate-200 hover:border-slate-300 bg-white'
                   }`}
                   onClick={() => handleRepoSelect(repo)}
@@ -286,7 +286,7 @@ export default function ReposPage() {
                     className={`mt-2 text-xs px-3 py-1 rounded-full transition ${
                       syncing === repo.id
                         ? 'bg-slate-100 text-slate-400'
-                        : 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'app-button-primary '
                     }`}
                   >
                     {syncing === repo.id ? '同步中...' : '🔄 同步'}
@@ -323,7 +323,7 @@ export default function ReposPage() {
                   value={searchQ}
                   onChange={e => setSearchQ(e.target.value)}
                   placeholder="搜索标题或路径..."
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full px-3 py-1.5 app-input rounded-lg text-xs focus:outline-none "
                 />
                 {docsTotal > 0 && (
                   <div className="text-xs text-slate-400 mt-1">
@@ -346,7 +346,7 @@ export default function ReposPage() {
                     key={doc.id}
                     className={`p-2 rounded border cursor-pointer text-sm transition ${
                       selectedDoc?.id === doc.id
-                        ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-300'
+                        ? 'border-teal-500/50 bg-teal-50 ring-1 ring-blue-300'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                     onClick={() => handleDocSelect(doc)}
@@ -360,7 +360,7 @@ export default function ReposPage() {
                 {hasMore && (
                   <button
                     onClick={handleLoadMore}
-                    className="w-full py-2 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg hover:bg-blue-50 transition"
+                    className="w-full py-2 text-xs text-teal-700 hover:text-blue-800 border border-teal-200 rounded-lg hover:bg-teal-50 transition"
                   >
                     加载更多 ({showing} / {docsTotal})
                   </button>

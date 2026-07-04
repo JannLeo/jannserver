@@ -33,11 +33,11 @@ export default function NewNotePage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="📝 新建笔记" backTo="/notes" backLabel="返回笔记" />
       <main className="max-w-4xl mx-auto p-6">
         <div className="flex justify-end mb-4">
-          <button onClick={handleSave} disabled={saving} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
+          <button onClick={handleSave} disabled={saving} className="app-button-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
@@ -48,7 +48,7 @@ export default function NewNotePage() {
           onChange={e => setTitle(e.target.value)}
         />
         <textarea
-          className="w-full h-[60vh] border border-slate-200 rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 font-mono text-sm"
+          className="w-full h-[60vh] app-input rounded-xl p-4 resize-none focus:outline-none font-mono text-sm"
           placeholder="支持 Markdown 格式..."
           value={content}
           onChange={e => setContent(e.target.value)}

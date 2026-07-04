@@ -25,11 +25,11 @@ export default function NotesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="📝 笔记" />
       <main className="max-w-4xl mx-auto p-6">
         <div className="flex items-center justify-between mb-4">
-          <Link href="/notes/new" className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">+ 新建笔记</Link>
+          <Link href="/notes/new" className="app-button-primary px-4 py-2 rounded-lg text-sm">+ 新建笔记</Link>
         </div>
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -46,16 +46,16 @@ export default function NotesPage() {
             <div className="text-5xl mb-3">📝</div>
             <p className="text-slate-400 font-medium">还没有笔记</p>
             <p className="text-slate-300 text-sm mt-1">创建你的第一篇笔记吧</p>
-            <Link href="/notes/new" className="mt-4 px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition shadow-sm">
+            <Link href="/notes/new" className="mt-4 px-4 py-2 app-button-primary text-sm rounded-lg  transition shadow-sm">
               创建笔记
             </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {notes.map(n => (
-              <div key={n.id} className="bg-white rounded-xl p-5 border border-slate-100 hover:border-blue-200 hover:shadow-md hover:shadow-blue-50 transition-all duration-200 flex justify-between items-start gap-3 group">
+              <div key={n.id} className="app-card p-5 hover:border-teal-500/30 hover:shadow-md hover:shadow-stone-900/5 transition-all duration-200 flex justify-between items-start gap-3 group">
                 <div className="min-w-0 flex-1">
-                  <Link href={`/notes/${n.slug}`} className="text-blue-600 hover:underline font-medium block truncate">{n.title || '无标题'}</Link>
+                  <Link href={`/notes/${n.slug}`} className="text-teal-700 hover:underline font-medium block truncate">{n.title || '无标题'}</Link>
                   {n.excerpt && <p className="text-sm text-slate-500 mt-1 line-clamp-2">{n.excerpt}</p>}
                   <span className="text-xs text-slate-400 mt-1.5 block">{formatDate(n.createdAt)}</span>
                 </div>

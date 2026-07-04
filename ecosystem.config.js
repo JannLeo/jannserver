@@ -1,25 +1,27 @@
+const env = process.env;
+
 module.exports = {
   apps: [
     {
       name: 'personal-workspace',
-      script: '/home/sz/workspace/node_modules/.bin/next',
-      args: 'start -p 3000',
-      cwd: '/home/sz/workspace',
+      script: env.NEXT_BIN || '/home/sz/workspace/node_modules/.bin/next',
+      args: env.NEXT_ARGS || 'start -p 3000',
+      cwd: env.APP_CWD || '/home/sz/workspace',
       interpreter: 'none',
       env: {
         NODE_ENV: 'production',
-        ALLOW_HTTP_COOKIES: 'true',
-        AI_BASE_URL: 'http://127.0.0.1:12345/v1',
-        AI_MODEL: 'MiniMax-M2.7',
-        AI_API_KEY: '2GwGk0i5ngO504uX6eXhl20hMFbsVsFsAZL6d3MpyJDIEHny',
-        MEDIA_CRAWLER_BASE_URL: 'http://127.0.0.1:8080',
-        MEDIA_CRAWLER_ENABLED: 'true',
-        OBSIDIAN_VAULT_DIR: '/home/sz/workspace/data/obsidian-vault',
-        EMBEDDING_MODEL: 'text-embedding-3-small',
-        BRAIN_API_URL: 'https://api.worldquantbrain.com',
-        BRAIN_CREDENTIAL_EMAIL: 'liujunnanjann@163.com',
-        BRAIN_CREDENTIAL_PASSWORD: 'liujn2014',
-        PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+        ALLOW_HTTP_COOKIES: env.ALLOW_HTTP_COOKIES || 'true',
+        AI_BASE_URL: env.AI_BASE_URL || 'http://127.0.0.1:12345/v1',
+        AI_MODEL: env.AI_MODEL || 'MiniMax-M2.7',
+        AI_API_KEY: env.AI_API_KEY || '',
+        MEDIA_CRAWLER_BASE_URL: env.MEDIA_CRAWLER_BASE_URL || 'http://127.0.0.1:8080',
+        MEDIA_CRAWLER_ENABLED: env.MEDIA_CRAWLER_ENABLED || 'true',
+        OBSIDIAN_VAULT_DIR: env.OBSIDIAN_VAULT_DIR || '/home/sz/workspace/data/obsidian-vault',
+        EMBEDDING_MODEL: env.EMBEDDING_MODEL || 'text-embedding-3-small',
+        BRAIN_API_URL: env.BRAIN_API_URL || 'https://api.worldquantbrain.com',
+        BRAIN_CREDENTIAL_EMAIL: env.BRAIN_CREDENTIAL_EMAIL || '',
+        BRAIN_CREDENTIAL_PASSWORD: env.BRAIN_CREDENTIAL_PASSWORD || '',
+        PATH: env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       },
       autorestart: true,
       max_restarts: 10,
@@ -30,16 +32,16 @@ module.exports = {
     },
     {
       name: 'media-crawler',
-      script: '/models-ssd/personal-workspace/tools/MediaCrawler/.venv/bin/python',
-      args: '-m api.main run --host 127.0.0.1 --port 8080',
-      cwd: '/models-ssd/personal-workspace/tools/MediaCrawler',
+      script: env.MEDIA_CRAWLER_SCRIPT || '/models-ssd/personal-workspace/tools/MediaCrawler/.venv/bin/python',
+      args: env.MEDIA_CRAWLER_ARGS || '-m api.main run --host 127.0.0.1 --port 8080',
+      cwd: env.MEDIA_CRAWLER_CWD || '/models-ssd/personal-workspace/tools/MediaCrawler',
       interpreter: 'none',
       env: {
-        MEDIA_CRAWLER_ENABLED: 'true',
-        MEDIA_CRAWLER_BASE_URL: 'http://127.0.0.1:8080',
-        MEDIA_CRAWLER_HOST: '127.0.0.1',
-        MEDIA_CRAWLER_PORT: '8080',
-        PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+        MEDIA_CRAWLER_ENABLED: env.MEDIA_CRAWLER_ENABLED || 'true',
+        MEDIA_CRAWLER_BASE_URL: env.MEDIA_CRAWLER_BASE_URL || 'http://127.0.0.1:8080',
+        MEDIA_CRAWLER_HOST: env.MEDIA_CRAWLER_HOST || '127.0.0.1',
+        MEDIA_CRAWLER_PORT: env.MEDIA_CRAWLER_PORT || '8080',
+        PATH: env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       },
       autorestart: true,
       max_restarts: 10,
@@ -47,5 +49,5 @@ module.exports = {
       restart_delay: 2000,
       watch: false,
     },
-  ]
+  ],
 };

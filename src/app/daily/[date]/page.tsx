@@ -77,7 +77,7 @@ export default function DailyPage() {
   if (loading) return <div className="p-6 text-slate-400">加载中...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title={`📅 ${date}`} />
       <main className="max-w-4xl mx-auto p-6 space-y-4">
         {/* 操作栏 */}
@@ -94,7 +94,7 @@ export default function DailyPage() {
             <button
               onClick={handleGenerate}
               disabled={generating}
-              className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg text-sm font-medium hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+              className="px-4 py-2 app-button-primary rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
             >
               {generating ? (
                 <>
@@ -108,7 +108,7 @@ export default function DailyPage() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50"
+              className="px-4 py-2 app-button-primary rounded-lg text-sm font-medium  disabled:opacity-50"
             >
               {saving ? '保存中...' : '💾 保存'}
             </button>
@@ -127,7 +127,7 @@ export default function DailyPage() {
 
         {/* 编辑器 */}
         <textarea
-          className="w-full h-[65vh] border border-slate-200 rounded-xl p-4 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+          className="w-full h-[65vh] app-input rounded-xl p-4 font-mono text-sm resize-none focus:outline-none bg-white"
           value={content}
           onChange={e => setContent(e.target.value)}
           placeholder={"今天做什么？\n\n可以手动输入，也可以点上面的「🤖 AI 生成日计划」让 AI 基于你的任务、备忘录和 GitHub 提交智能生成。"}
@@ -143,7 +143,7 @@ export default function DailyPage() {
       {/* 建议任务弹窗 */}
       {showTaskModal && suggestedTasks.length > 0 && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={handleInsertPlan}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+          <div className="app-card shadow-[0_30px_90px_rgba(39,32,24,0.18)] max-w-md w-full" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-slate-800">💡 建议新建的任务</h3>
@@ -153,7 +153,7 @@ export default function DailyPage() {
             </div>
             <div className="p-5 space-y-3 max-h-72 overflow-y-auto">
               {suggestedTasks.map((task, i) => (
-                <div key={i} className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                <div key={i} className="app-panel rounded-xl p-3 border border-slate-100">
                   <div className="flex items-start gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-slate-700">{task.title}</div>
@@ -162,7 +162,7 @@ export default function DailyPage() {
                       )}
                       <div className="flex items-center gap-2 mt-1.5">
                         {task.projectName && (
-                          <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{task.projectName}</span>
+                          <span className="text-xs bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded">{task.projectName}</span>
                         )}
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
                           task.priority === 'high' ? 'bg-red-50 text-red-500' :
@@ -180,13 +180,13 @@ export default function DailyPage() {
             <div className="px-5 py-4 border-t border-slate-100 flex gap-2">
               <button
                 onClick={handleInsertPlan}
-                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600"
+                className="flex-1 px-4 py-2 app-button-primary rounded-lg text-sm font-medium "
               >
                 知道了
               </button>
               <button
                 onClick={() => { setShowTaskModal(false); }}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm hover:bg-slate-50"
+                className="px-4 py-2 app-button-secondary rounded-lg text-sm hover:bg-slate-50"
               >
                 忽略
               </button>

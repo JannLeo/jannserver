@@ -63,7 +63,7 @@ export default function LoginPage() {
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1.5">用户名</label>
               <input
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-300 transition"
+                className="w-full app-input rounded-xl px-4 py-2.5 text-sm focus:outline-none  transition"
                 placeholder="输入用户名"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
@@ -73,7 +73,7 @@ export default function LoginPage() {
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1.5">密码</label>
               <input
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-300 transition"
+                className="w-full app-input rounded-xl px-4 py-2.5 text-sm focus:outline-none  transition"
                 type="password"
                 placeholder="输入密码"
                 value={password}
@@ -89,7 +89,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl py-2.5 text-sm font-medium hover:from-blue-600 hover:to-indigo-600 transition shadow-sm shadow-blue-200 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full app-button-primary rounded-xl py-2.5 text-sm font-medium transition shadow-sm shadow-teal-900/10 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>

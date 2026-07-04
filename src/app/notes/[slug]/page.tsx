@@ -40,14 +40,14 @@ export default function NoteDetailPage() {
   if (!note) return <div className="p-6 text-red-500">笔记不存在</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title={note.title} backTo="/notes" backLabel="返回笔记" />
       <main className="max-w-4xl mx-auto p-6">
         <div className="flex justify-end gap-2 mb-4">
           {editing ? (
             <>
               <button onClick={() => setEditing(false)} className="border border-slate-300 px-4 py-2 rounded-lg text-sm">取消</button>
-              <button onClick={handleSave} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">保存</button>
+              <button onClick={handleSave} className="app-button-primary px-4 py-2 rounded-lg text-sm">保存</button>
             </>
           ) : (
             <button onClick={() => setEditing(true)} className="border border-slate-300 px-4 py-2 rounded-lg text-sm">编辑</button>
@@ -56,7 +56,7 @@ export default function NoteDetailPage() {
         {editing ? (
           <>
             <input className="w-full text-2xl font-bold border-none outline-none bg-transparent mb-4" value={title} onChange={e => setTitle(e.target.value)} />
-            <textarea className="w-full h-[60vh] border border-slate-200 rounded-xl p-4 resize-none font-mono text-sm" value={content} onChange={e => setContent(e.target.value)} />
+            <textarea className="w-full h-[60vh] app-input rounded-xl p-4 resize-none font-mono text-sm" value={content} onChange={e => setContent(e.target.value)} />
           </>
         ) : (
           <article className="prose prose-slate max-w-none">

@@ -109,20 +109,20 @@ export default function UsagePage() {
   const maxDailyCost = data?.daily && data.daily.length > 0 ? Math.max(...data.daily.map(d => d.cost), 0.0001) : 1;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="💳 AI 使用情况" />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         {/* 顶部操作栏 */}
         <div className="flex items-center justify-between mb-6">
-          <div className="flex gap-1 bg-white border border-slate-200 rounded-lg p-1">
+          <div className="flex gap-1 app-input rounded-lg p-1">
             {(['today', '7d', '30d'] as RangeOption[]).map(r => (
               <button
                 key={r}
                 onClick={() => setRange(r)}
                 className={`px-4 py-1.5 text-sm rounded-md transition ${
                   range === r
-                    ? 'bg-blue-500 text-white'
+                    ? 'app-button-primary'
                     : 'text-slate-600 hover:bg-slate-100'
                 }`}
               >
@@ -133,7 +133,7 @@ export default function UsagePage() {
           <button
             onClick={() => fetchUsage(range)}
             disabled={loading}
-            className="text-sm px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="text-sm px-3 py-1.5 app-button-secondary rounded-lg text-slate-600 disabled:opacity-50"
           >
             {loading ? '刷新中...' : '🔄 刷新'}
           </button>
@@ -212,7 +212,7 @@ export default function UsagePage() {
                       <span className="font-medium text-slate-700 truncate w-32 flex-shrink-0" title={m.model}>{m.model}</span>
                       <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
                         <div
-                          className="bg-indigo-400 h-full rounded-full"
+                          className="bg-teal-600 h-full rounded-full"
                           style={{ width: `${(m.cost / maxModelCost) * 100}%` }}
                         />
                       </div>
@@ -270,7 +270,7 @@ export default function UsagePage() {
 
         {/* 底部返回 */}
         <div className="mt-8 text-center">
-          <Link href="/dashboard" className="text-sm text-slate-500 hover:text-blue-600">
+          <Link href="/dashboard" className="text-sm text-slate-500 hover:text-teal-700">
             ← 返回工作台
           </Link>
         </div>
@@ -281,11 +281,11 @@ export default function UsagePage() {
 
 function SummaryCard({ label, value, accent }: { label: string; value: string; accent: string }) {
   const accentMap: Record<string, string> = {
-    blue: 'border-blue-200 bg-blue-50 text-blue-700',
+    blue: 'border-teal-200 bg-teal-50 text-blue-700',
     red: 'border-red-200 bg-red-50 text-red-700',
     orange: 'border-orange-200 bg-orange-50 text-orange-700',
     amber: 'border-amber-200 bg-amber-50 text-amber-700',
-    indigo: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+    indigo: 'border-teal-200 bg-teal-50 text-indigo-700',
     purple: 'border-purple-200 bg-purple-50 text-purple-700',
   };
   return (
@@ -298,7 +298,7 @@ function SummaryCard({ label, value, accent }: { label: string; value: string; a
 
 function Card({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
   return (
-    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <section className="app-card overflow-hidden">
       <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
         <h2 className="font-semibold text-slate-800 text-sm">{title}</h2>
         {count != null && <span className="text-xs text-slate-400">{count}</span>}

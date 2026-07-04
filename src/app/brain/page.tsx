@@ -240,12 +240,12 @@ export default function BrainPage() {
     tab === 'unsubmitted' ? 'UNSUBMITTED' : tab === 'submitted' ? 'ACTIVE' : '';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="page-shell flex flex-col">
       <NavBar title="🧠 WorldQuant BRAIN" />
 
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
         {/* 状态栏 */}
-        <div className="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+        <div className="app-card p-4 mb-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500">配置:</span>
@@ -280,7 +280,7 @@ export default function BrainPage() {
             <button
               onClick={handleSync}
               disabled={syncing || !status?.configured}
-              className="ml-auto px-3 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+              className="ml-auto px-3 py-1.5 rounded text-xs font-medium app-button-primary  disabled:bg-slate-300 disabled:cursor-not-allowed"
             >
               {syncing ? '同步中…' : '同步 BRAIN'}
             </button>
@@ -309,7 +309,7 @@ export default function BrainPage() {
               onClick={() => setTab(t.key as any)}
               className={`px-4 py-2 text-sm border-b-2 transition-colors ${
                 tab === t.key
-                  ? 'border-blue-600 text-blue-600 font-medium'
+                  ? 'border-teal-700 text-teal-700 font-medium'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
@@ -357,20 +357,20 @@ function AlphaTable({
 }) {
   if (loading) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-8 text-center text-sm text-slate-400">
+      <div className="app-card p-8 text-center text-sm text-slate-400">
         加载中…
       </div>
     );
   }
   if (alphas.length === 0) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-8 text-center text-sm text-slate-400">
+      <div className="app-card p-8 text-center text-sm text-slate-400">
         暂无数据，请点击右上角「同步 BRAIN」拉取
       </div>
     );
   }
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+    <div className="app-card overflow-hidden">
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
           <thead className="bg-slate-50 border-b border-slate-200">
@@ -394,7 +394,7 @@ function AlphaTable({
                 <tr
                   key={a.id}
                   onClick={() => onOpenDetail(a.id)}
-                  className="hover:bg-blue-50 cursor-pointer"
+                  className="hover:bg-teal-50 cursor-pointer"
                 >
                   <td className="px-3 py-2 font-mono text-xs max-w-xs truncate" title={a.expression}>
                     {truncate(a.expression, 60)}
@@ -430,14 +430,14 @@ function AlphaTable({
 function UserInfoPanel({ status }: { status: BrainStatus | null }) {
   if (!status?.userInfo) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-8 text-center text-sm text-slate-400">
+      <div className="app-card p-8 text-center text-sm text-slate-400">
         暂无个人信息，请先点击「同步 BRAIN」
       </div>
     );
   }
   const u = status.userInfo;
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-6">
+    <div className="app-card p-6">
       <h3 className="text-sm font-medium text-slate-700 mb-4">个人信息</h3>
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
@@ -477,7 +477,7 @@ function AlphaDetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+        className="app-card max-w-4xl w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
@@ -567,7 +567,7 @@ function AlphaDetailContent({ alpha }: { alpha: Alpha }) {
         <div className="text-xs text-slate-500 mb-1">Settings</div>
         <div className="grid grid-cols-4 gap-2 text-xs">
           {settingFields.map((f) => (
-            <div key={f} className="bg-slate-50 rounded px-2 py-1">
+            <div key={f} className="app-panel rounded px-2 py-1">
               <span className="text-slate-500">{f}: </span>
               <span className="text-slate-800 font-mono">
                 {settings[f] != null ? String(settings[f]) : '-'}
@@ -582,7 +582,7 @@ function AlphaDetailContent({ alpha }: { alpha: Alpha }) {
         <div className="text-xs text-slate-500 mb-1">指标</div>
         <div className="grid grid-cols-4 gap-2 text-xs">
           {metrics.map((m) => (
-            <div key={m.label} className="bg-slate-50 rounded px-2 py-1">
+            <div key={m.label} className="app-panel rounded px-2 py-1">
               <span className="text-slate-500">{m.label}: </span>
               <span className="text-slate-800 font-mono">
                 {m.value || '-'}
@@ -613,7 +613,7 @@ function AlphaDetailContent({ alpha }: { alpha: Alpha }) {
             {checks.map((c, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 text-xs bg-slate-50 rounded px-2 py-1"
+                className="flex items-center gap-3 text-xs app-panel rounded px-2 py-1"
               >
                 <CheckBadge result={c.result} />
                 <span className="text-slate-700">{c.name}</span>

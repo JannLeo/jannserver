@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/index';
 import { novelVolumes } from '@/lib/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 export const runtime = 'nodejs';
@@ -48,13 +48,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await req.json();
+    const { volumeId } = body;
+    if (!volumeId) return NextResponse.json({ error: '缺少 volumeId' }, { status: 400 });
+
     const allowed = ['title', 'synopsis', 'outline', 'wordCountTarget', 'status'];
     const updates: Record<string, any> = { updatedAt: new Date().toISOString() };
     for (const k of allowed) {
       if (body[k] !== undefined) updates[k] = body[k];
     }
-    db.update(novelVolumes).set(updates).where(eq(novelVolumes.id, body.volumeId)).run();
-    return NextResponse.json({ ok: true });
+
+    const result = db.update(novelVolumes)
+      .set(updates)
+      .where(and(eq(novelVolumes.id, volumeId), eq(novelVolumes.novelId, params.id)))
+      .run();
+    if (result.changes === 0) return NextResponse.json({ error: '卷目不存在' }, { status: 404 });
+
+    const volume = db.select().from(novelVolumes).where(eq(novelVolumes.id, volumeId)).get();
+    return NextResponse.json(volume);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

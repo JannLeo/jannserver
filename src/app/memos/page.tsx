@@ -37,17 +37,17 @@ export default function MemosPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="📋 备忘录" />
       <main className="max-w-3xl mx-auto p-6">
         <div className="mb-6">
-          <button onClick={() => setShowNew(!showNew)} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">{showNew ? '关闭' : '+ 新建'}</button>
+          <button onClick={() => setShowNew(!showNew)} className="app-button-primary px-4 py-2 rounded-lg text-sm">{showNew ? '关闭' : '+ 新建'}</button>
         </div>
         {showNew && (
-          <div className="mb-6 bg-white rounded-xl p-4 border border-slate-200">
-            <textarea className="w-full min-h-[120px] border border-slate-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+          <div className="mb-6 app-card p-4">
+            <textarea className="w-full min-h-[120px] app-input rounded-lg p-3 text-sm resize-none focus:outline-none"
               placeholder="记录临时想法、测试现象、bug 分析..." value={content} onChange={e => setContent(e.target.value)} />
-            <button onClick={handleCreate} className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">保存</button>
+            <button onClick={handleCreate} className="mt-2 app-button-primary px-4 py-2 rounded-lg text-sm">保存</button>
           </div>
         )}
 
@@ -59,7 +59,7 @@ export default function MemosPage() {
               <p className="text-slate-300 text-sm mt-1">点击上方的"+ 新建"开始记录</p>
             </div>
           ) : memos.map(m => (
-            <div key={m.id} className="bg-white rounded-xl p-5 border border-slate-100 hover:border-blue-200 hover:shadow-md hover:shadow-blue-50 transition-all duration-200 group">
+            <div key={m.id} className="app-card p-5 hover:border-teal-500/30 hover:shadow-md hover:shadow-stone-900/5 transition-all duration-200 group">
               <div className="flex items-start gap-3">
                 <div className="w-7 h-7 rounded-lg bg-yellow-50 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <span className="text-sm">💡</span>

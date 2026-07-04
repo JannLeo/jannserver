@@ -236,14 +236,14 @@ export default function VideoAnalysisPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="page-shell flex items-center justify-center">
         <p className="text-slate-400">加载中...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="🎬 视频分析工作台" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
@@ -279,29 +279,29 @@ export default function VideoAnalysisPage() {
           </div>
           <button
             onClick={() => { fetchStatus(); fetchJobs(); }}
-            className="text-sm px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
+            className="text-sm px-3 py-1.5 app-button-secondary rounded-lg text-slate-600"
           >
             🔄 刷新
           </button>
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 bg-white border border-slate-200 rounded-lg p-1 mb-4 w-fit">
+        <div className="flex gap-1 app-input rounded-lg p-1 mb-4 w-fit">
           <button
             onClick={() => setTab('list')}
-            className={`px-4 py-1.5 text-sm rounded-md transition ${tab === 'list' ? 'bg-blue-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`px-4 py-1.5 text-sm rounded-md transition ${tab === 'list' ? 'app-button-primary' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             任务列表
           </button>
           <button
             onClick={() => setTab('create')}
-            className={`px-4 py-1.5 text-sm rounded-md transition ${tab === 'create' ? 'bg-blue-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`px-4 py-1.5 text-sm rounded-md transition ${tab === 'create' ? 'app-button-primary' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             + 新建任务
           </button>
           <button
             onClick={() => setTab('agent-reach')}
-            className={`px-4 py-1.5 text-sm rounded-md transition ${tab === 'agent-reach' ? 'bg-blue-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`px-4 py-1.5 text-sm rounded-md transition ${tab === 'agent-reach' ? 'app-button-primary' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             👁️ Agent Reach
           </button>
@@ -309,7 +309,7 @@ export default function VideoAnalysisPage() {
 
         {/* Create form */}
         {tab === 'create' && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-4">
+          <div className="app-card p-6 mb-4">
             <h2 className="text-base font-semibold text-slate-700 mb-4">创建采集任务</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -317,7 +317,7 @@ export default function VideoAnalysisPage() {
                 <select
                   value={platform}
                   onChange={e => setPlatform(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full px-3 py-2 app-input rounded-lg text-sm focus:outline-none"
                 >
                   {Object.entries(PLATFORM_LABELS).map(([k, v]) => (
                     <option key={k} value={k}>{v}</option>
@@ -329,7 +329,7 @@ export default function VideoAnalysisPage() {
                 <select
                   value={crawlType}
                   onChange={e => setCrawlType(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full px-3 py-2 app-input rounded-lg text-sm focus:outline-none"
                 >
                   <option value="search">关键词搜索</option>
                   <option value="detail">指定链接</option>
@@ -344,7 +344,7 @@ export default function VideoAnalysisPage() {
                     value={keyword}
                     onChange={e => setKeyword(e.target.value)}
                     placeholder="例如：FPGA 测试"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    className="w-full px-3 py-2 app-input rounded-lg text-sm focus:outline-none"
                   />
                 </div>
               )}
@@ -356,7 +356,7 @@ export default function VideoAnalysisPage() {
                     value={targetUrl}
                     onChange={e => setTargetUrl(e.target.value)}
                     placeholder="https://www.bilibili.com/video/..."
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    className="w-full px-3 py-2 app-input rounded-lg text-sm focus:outline-none"
                   />
                 </div>
               )}
@@ -368,7 +368,7 @@ export default function VideoAnalysisPage() {
                   max={20}
                   value={limit}
                   onChange={e => setLimit(Math.min(Math.max(parseInt(e.target.value) || 5, 1), 20))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full px-3 py-2 app-input rounded-lg text-sm focus:outline-none"
                 />
               </div>
             </div>
@@ -378,7 +378,7 @@ export default function VideoAnalysisPage() {
             <button
               onClick={handleCreate}
               disabled={submitting}
-              className="mt-4 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              className="mt-4 px-5 py-2 app-button-primary rounded-lg text-sm font-medium  disabled:opacity-50"
             >
               {submitting ? '创建中...' : '创建任务'}
             </button>
@@ -389,9 +389,9 @@ export default function VideoAnalysisPage() {
         {tab === 'agent-reach' && (
           <div className="space-y-6">
             {/* Header Card */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 p-6">
+            <div className="app-panel p-6">
               <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-xl flex-shrink-0 shadow-sm">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-700 to-[#173f3c] flex items-center justify-center text-white text-xl flex-shrink-0 shadow-sm">
                   👁️
                 </div>
                 <div className="flex-1 min-w-0">
@@ -404,18 +404,18 @@ export default function VideoAnalysisPage() {
                       href="https://github.com/Panniantong/Agent-Reach"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline"
+                      className="text-xs text-teal-700 hover:underline"
                     >
                       github.com/Panniantong/Agent-Reach ↗
                     </a>
-                    <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-medium">v1.5.0</span>
+                    <span className="text-xs bg-blue-100 text-teal-700 px-2 py-0.5 rounded-full font-medium">v1.5.0</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Install Command */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="app-card overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
                 <h3 className="font-semibold text-slate-700 text-sm">⚡ 快速安装</h3>
                 <p className="text-xs text-slate-400 mt-0.5">复制这条命令给你的 AI Agent（Claude Code / OpenClaw / Cursor 等）</p>
@@ -429,7 +429,7 @@ export default function VideoAnalysisPage() {
                     href="https://github.com/Panniantong/Agent-Reach"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
+                    className="text-xs px-3 py-1.5 app-button-secondary rounded-lg text-slate-600"
                   >
                     📄 查看 README
                   </a>
@@ -437,7 +437,7 @@ export default function VideoAnalysisPage() {
                     href="https://trendshift.io/repositories/24387"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
+                    className="text-xs px-3 py-1.5 app-button-secondary rounded-lg text-slate-600"
                   >
                     📈 GitHub Trending #1
                   </a>
@@ -446,7 +446,7 @@ export default function VideoAnalysisPage() {
             </div>
 
             {/* Supported Platforms */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="app-card overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
                 <h3 className="font-semibold text-slate-700 text-sm">🌐 支持的平台</h3>
               </div>
@@ -457,7 +457,7 @@ export default function VideoAnalysisPage() {
                     { icon: '📺', name: 'YouTube', desc: 'yt-dlp 字幕提取', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
                     { icon: '📡', name: 'RSS', desc: 'feedparser', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
                     { icon: '📦', name: 'GitHub', desc: 'gh CLI', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
-                    { icon: '🔍', name: '全网搜索', desc: 'Exa 语义搜索', tag: 'MCP 免费', tagColor: 'bg-blue-50 text-blue-600 border border-blue-200' },
+                    { icon: '🔍', name: '全网搜索', desc: 'Exa 语义搜索', tag: 'MCP 免费', tagColor: 'bg-teal-50 text-teal-700 border border-teal-200' },
                     { icon: '📺', name: 'B站', desc: 'bili-cli / OpenCLI', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
                     { icon: '🐦', name: 'Twitter/X', desc: 'twitter-cli / OpenCLI', tag: '需 Cookie', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
                     { icon: '📖', name: 'Reddit', desc: 'OpenCLI / rdt-cli', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
@@ -466,10 +466,10 @@ export default function VideoAnalysisPage() {
                     { icon: '📷', name: 'Instagram', desc: 'OpenCLI', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
                     { icon: '💼', name: 'LinkedIn', desc: 'linkedin-mcp / Jina', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
                     { icon: '📈', name: '雪球', desc: '股票行情', tag: '需 Cookie', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '🎙️', name: '小宇宙播客', desc: 'Groq Whisper 转录', tag: '需 Groq Key', tagColor: 'bg-blue-50 text-blue-600 border border-blue-200' },
+                    { icon: '🎙️', name: '小宇宙播客', desc: 'Groq Whisper 转录', tag: '需 Groq Key', tagColor: 'bg-teal-50 text-teal-700 border border-teal-200' },
                     { icon: '💻', name: 'V2EX', desc: '无需配置', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
                   ].map(p => (
-                    <div key={p.name} className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition text-sm">
+                    <div key={p.name} className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-100 hover:border-teal-200 hover:bg-teal-50/30 transition text-sm">
                       <span className="text-lg flex-shrink-0">{p.icon}</span>
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-slate-700 text-xs truncate">{p.name}</div>
@@ -483,7 +483,7 @@ export default function VideoAnalysisPage() {
             </div>
 
             {/* Current Routing */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="app-card overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
                 <h3 className="font-semibold text-slate-700 text-sm">🔌 当前后端路由</h3>
                 <p className="text-xs text-slate-400 mt-0.5">每个平台自动选最优后端，失效时自动切换</p>
@@ -517,7 +517,7 @@ export default function VideoAnalysisPage() {
             </div>
 
             {/* Key Commands */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="app-card overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
                 <h3 className="font-semibold text-slate-700 text-sm">🛠️ 常用命令</h3>
               </div>
@@ -532,8 +532,8 @@ export default function VideoAnalysisPage() {
                     { cmd: 'agent-reach configure groq-key gsk_xxx', desc: '配置小宇宙转录 Key' },
                     { cmd: 'agent-reach uninstall', desc: '卸载所有' },
                   ].map(c => (
-                    <div key={c.cmd} className="flex items-start gap-3 bg-slate-50 rounded-lg px-3 py-2.5">
-                      <code className="text-blue-600 flex-shrink-0">{c.cmd}</code>
+                    <div key={c.cmd} className="flex items-start gap-3 app-panel rounded-lg px-3 py-2.5">
+                      <code className="text-teal-700 flex-shrink-0">{c.cmd}</code>
                       <span className="text-slate-400">— {c.desc}</span>
                     </div>
                   ))}
@@ -553,7 +553,7 @@ export default function VideoAnalysisPage() {
                   { title: '自带诊断', desc: 'agent-reach doctor 一条命令告诉你哪个通、哪个不通' },
                   { title: '安全模式', desc: '--safe 不修改系统，只列需求；--dry-run 预览所有操作' },
                 ].map(item => (
-                  <div key={item.title} className="bg-white rounded-lg p-3 border border-slate-100">
+                  <div key={item.title} className="app-card p-3 border border-slate-100">
                     <div className="font-medium text-slate-700 mb-1">{item.title}</div>
                     <div className="text-slate-400">{item.desc}</div>
                   </div>
@@ -565,11 +565,11 @@ export default function VideoAnalysisPage() {
         {tab === 'list' && (
           <div>
             {jobs.length === 0 ? (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">
+              <div className="app-card p-8 text-center text-slate-400">
                 暂无采集任务，切换到「新建任务」创建一个吧
               </div>
             ) : (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="app-card overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
@@ -600,13 +600,13 @@ export default function VideoAnalysisPage() {
                             {job.status === 'pending' && (
                               <button
                                 onClick={() => handleRun(job.id)}
-                                className="text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
+                                className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100"
                               >
                                 运行
                               </button>
                             )}
                             {job.status === 'running' && (
-                              <span className="text-xs px-2 py-1 bg-blue-50 text-blue-400 rounded">采集中</span>
+                              <span className="text-xs px-2 py-1 bg-teal-50 text-blue-400 rounded">采集中</span>
                             )}
                             <button
                               onClick={() => handleView(job)}
@@ -618,7 +618,7 @@ export default function VideoAnalysisPage() {
                               <button
                                 onClick={() => handleAnalyze(job.id)}
                                 disabled={analyzing}
-                                className="text-xs px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 disabled:opacity-50"
+                                className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100 disabled:opacity-50"
                               >
                                 {analyzing ? '分析中...' : 'AI 分析'}
                               </button>
@@ -638,7 +638,7 @@ export default function VideoAnalysisPage() {
       {/* Detail Modal */}
       {selectedJob && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSelectedJob(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="app-card shadow-[0_30px_90px_rgba(39,32,24,0.18)] max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-10">
               <div>
                 <h3 className="text-base font-semibold text-slate-800">任务详情 #{selectedJob.id}</h3>
@@ -655,19 +655,19 @@ export default function VideoAnalysisPage() {
               ) : detailData ? (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                    <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="app-panel rounded-lg p-3">
                       <div className="text-slate-400 mb-1">状态</div>
                       <StatusBadge status={detailData.job.status} />
                     </div>
-                    <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="app-panel rounded-lg p-3">
                       <div className="text-slate-400 mb-1">采集结果</div>
                       <div className="text-slate-700 font-medium">{detailData.job.resultCount} 条</div>
                     </div>
-                    <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="app-panel rounded-lg p-3">
                       <div className="text-slate-400 mb-1">关键词</div>
                       <div className="text-slate-700 truncate">{detailData.job.keyword || detailData.job.targetUrl || '-'}</div>
                     </div>
-                    <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="app-panel rounded-lg p-3">
                       <div className="text-slate-400 mb-1">完成时间</div>
                       <div className="text-slate-700">{detailData.job.finishedAt ? formatTime(detailData.job.finishedAt) : '-'}</div>
                     </div>
@@ -685,7 +685,7 @@ export default function VideoAnalysisPage() {
                       </h4>
                       <div className="space-y-2">
                         {detailData.items.slice(0, 10).map((item: any) => (
-                          <div key={item.id} className="bg-slate-50 rounded-lg p-3 border border-slate-100">
+                          <div key={item.id} className="app-panel rounded-lg p-3 border border-slate-100">
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-medium text-slate-800 truncate">{item.title || '无标题'}</div>
@@ -695,7 +695,7 @@ export default function VideoAnalysisPage() {
                                 )}
                               </div>
                               {item.url && (
-                                <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-xs flex-shrink-0">↗</a>
+                                <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-teal-700 text-xs flex-shrink-0">↗</a>
                               )}
                             </div>
                           </div>
@@ -710,13 +710,13 @@ export default function VideoAnalysisPage() {
                   {analyzeResult && (
                     <div>
                       <h4 className="text-sm font-semibold text-slate-700 mb-2">AI 分析报告</h4>
-                      <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+                      <div className="app-panel rounded-lg p-4 border border-slate-100">
                         <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">{analyzeResult}</pre>
                       </div>
                       <div className="mt-2">
                         <button
                           onClick={() => { navigator.clipboard.writeText(analyzeResult); alert('已复制'); }}
-                          className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50"
+                          className="text-xs px-3 py-1.5 app-button-secondary rounded-lg text-slate-600"
                         >
                           复制 Markdown
                         </button>
@@ -727,7 +727,7 @@ export default function VideoAnalysisPage() {
                   {!analyzeResult && detailData.report?.markdown && (
                     <div>
                       <h4 className="text-sm font-semibold text-slate-700 mb-2">AI 分析报告（已保存）</h4>
-                      <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+                      <div className="app-panel rounded-lg p-4 border border-slate-100">
                         <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">{detailData.report.markdown}</pre>
                       </div>
                     </div>
@@ -738,7 +738,7 @@ export default function VideoAnalysisPage() {
                       <button
                         onClick={() => handleAnalyze(detailData.job.id)}
                         disabled={analyzing}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
+                        className="px-4 py-2 app-button-primary rounded-lg text-sm disabled:opacity-50"
                       >
                         {analyzing ? '分析中（120s超时）...' : '生成 AI 分析报告'}
                       </button>
@@ -746,7 +746,7 @@ export default function VideoAnalysisPage() {
                     {analyzeResult && (
                       <button
                         onClick={() => { navigator.clipboard.writeText(analyzeResult); alert('已复制'); }}
-                        className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+                        className="px-4 py-2 app-input rounded-lg text-sm text-slate-600 hover:bg-slate-50"
                       >
                         复制报告
                       </button>

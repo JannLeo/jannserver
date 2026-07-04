@@ -92,18 +92,18 @@ export default function AskPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="page-shell">
       <NavBar title="🤖 AI 知识库问答" />
 
       <main className="max-w-3xl mx-auto p-6 space-y-6">
         {/* Repo Selector */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+        <div className="app-card p-4">
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-slate-600 whitespace-nowrap">知识库：</label>
             <select
               value={repoName}
               onChange={e => setRepoName(e.target.value)}
-              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 px-3 py-2 app-input rounded-lg text-sm bg-white focus:outline-none"
               disabled={loading}
             >
               <option value="全部仓库">全部仓库</option>
@@ -115,7 +115,7 @@ export default function AskPage() {
         </div>
 
         {/* Input */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+        <div className="app-card p-4">
           <div className="flex gap-3">
             <input
               type="text"
@@ -123,13 +123,13 @@ export default function AskPage() {
               onChange={e => setQuestion(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="输入问题，例如：WorldQuant fitness 是什么？"
-              className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 px-4 py-2.5 app-input rounded-lg text-sm focus:outline-none"
               disabled={loading}
             />
             <button
               onClick={handleSubmit}
               disabled={loading || !question.trim()}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 app-button-primary rounded-lg text-sm font-medium  disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? '查询中...' : '提问'}
             </button>
@@ -156,7 +156,7 @@ export default function AskPage() {
 
         {/* Loading */}
         {loading && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
+          <div className="app-card p-8 text-center">
             <p className="text-slate-400 animate-pulse">正在搜索知识库并生成回答...</p>
           </div>
         )}
@@ -171,7 +171,7 @@ export default function AskPage() {
         {/* Answer */}
         {result && result.configured && result.answer && (
           <>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <div className="app-card p-6">
               <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">回答</h2>
               <div className="prose prose-sm max-w-none text-slate-700 whitespace-pre-wrap leading-relaxed">
                 {result.answer}
@@ -180,7 +180,7 @@ export default function AskPage() {
 
             {/* Sources */}
             {result.sources.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <div className="app-card p-6">
                 <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
                   参考来源 ({result.sources.length})
                 </h2>
@@ -202,7 +202,7 @@ export default function AskPage() {
                           <div className="text-xs text-slate-400 mt-0.5 space-x-2">
                             <span className="bg-slate-100 px-1.5 py-0.5 rounded">{getTypeLabel(source.docType)}</span>
                             {source.repoName && (
-                              <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{source.repoName}</span>
+                              <span className="bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded">{source.repoName}</span>
                             )}
                           </div>
                         </div>
@@ -221,7 +221,7 @@ export default function AskPage() {
                           <div className="text-xs text-slate-400 mt-0.5 space-x-2">
                             <span className="bg-slate-100 px-1.5 py-0.5 rounded">{getTypeLabel(source.docType)}</span>
                             {source.repoName && (
-                              <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{source.repoName}</span>
+                              <span className="bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded">{source.repoName}</span>
                             )}
                           </div>
                         </div>
