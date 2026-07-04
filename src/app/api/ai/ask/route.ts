@@ -46,6 +46,75 @@ function detectRepoHint(question: string): string | null {
   return null;
 }
 
+/**
+ * 概念文档兜底：当用户明确选择仓库时，
+ * 通过关键词匹配从该仓库的 obsidian_note 中补充可能在 n-gram 排名中落选的短文本概念文档
+ */
+async function fetchConceptDocFallback(repoName: string, question: string): Promise<SemanticHit[]> {
+  // 提取问题关键词（中文词/英文词，2字符以上）
+  const words = question.match(/[\w\u4e00-\u9fff]{2,}/g) || [];
+  if (words.length === 0) return [];
+  const lowerWords = words.map(w => w.toLowerCase());
+
+  // 构造 LIKE 条件（任一关键词命中即可）
+  const likePatterns = lowerWords.map(w => `%${w}%`);
+  if (likePatterns.length === 0) return [];
+
+  try {
+    initDb();
+    const rawSqlite: any = sqlite;
+
+    // 遍历该 repo 的所有 wq_obsidian 路径文档，精确打分后取 top 3
+    const allConceptDocs: any[] = [];
+    for (const cp of [`${repoName}/wq_obsidian/%`, `${repoName}/note/%`, `${repoName}/forum/%`]) {
+      const rows = rawSqlite.prepare(
+        `SELECT doc_id, content FROM embeddings
+         WHERE doc_type = 'obsidian_note'
+           AND doc_id LIKE ?
+         ORDER BY doc_id`
+      ).all(`obsidian:${cp}`);
+      for (const r of rows as any[]) {
+        allConceptDocs.push(r);
+      }
+    }
+
+    // 对所有概念文档打分（关键词匹配 + doc_id 命中额外加权）
+    const scored: { docId: string; content: string; score: number }[] = [];
+    for (const row of allConceptDocs) {
+      if (row.doc_id.includes('venv') || row.doc_id.includes('node_modules')) continue;
+      const cl = (row.content || '').toLowerCase();
+      // 同时检查 content 和 doc_id（文件名）
+      let keywordHits = 0;
+      for (const w of lowerWords) {
+        if (cl.includes(w) || row.doc_id.toLowerCase().includes(w)) keywordHits++;
+      }
+      if (keywordHits === 0) continue;
+      // base: 关键词命中比例
+      let score = keywordHits / lowerWords.length;
+      // 文件名命中额外加权 0.5（让 Fitness.md 等概念文档优先）
+      if (lowerWords.some(w => row.doc_id.toLowerCase().includes(w))) {
+        score += 0.5;
+      }
+      scored.push({ docId: row.doc_id, content: row.content, score });
+    }
+
+    // 按分降序，取 top 3
+    scored.sort((a, b) => b.score - a.score);
+    console.log('[ai.ask] fetchConceptDocFallback:', `repo=${repoName} scoredCount=${scored.length}`,
+      'top5=', scored.slice(0, 5).map(h => `${h.docId.replace(/^obsidian:[^/]+\//, '').slice(0, 35)}(${h.score.toFixed(2)})`));
+
+    return scored.slice(0, 3).map(h => ({
+      docType: 'obsidian_note',
+      docId: h.docId,
+      content: (h.content || '').slice(0, 500),
+      score: h.score,
+    }));
+  } catch (err) {
+    console.error('[ai.ask] fetchConceptDocFallback failed:', err);
+    return [];
+  }
+}
+
 function truncate(text: string, max: number): string {
   if (!text) return '';
   if (text.length <= max) return text;
@@ -668,6 +737,24 @@ export async function POST(req: NextRequest) {
     semanticHits = semanticHits.slice(0, 8);
     console.log('[ai.ask] after repoHint boost:', rh,
       'top scores:', semanticHits.slice(0, 3).map(h => h.score.toFixed(3)));
+  }
+
+  // 当用户明确选择仓库时，补充概念文档兜底
+  // 因为 n-gram embedding 对短文本概念文档（如 Fitness.md）匹配度低，
+  // 即使 boost 后也可能被 forum 字段列表挤出 top 8，需手动补充
+  if (repoNameFromBody) {
+    const conceptHits = await fetchConceptDocFallback(repoNameFromBody, question);
+    if (conceptHits.length > 0) {
+      const existingDocIds = new Set(semanticHits.map(h => h.docId));
+      for (const ch of conceptHits) {
+        if (!existingDocIds.has(ch.docId)) {
+          // 放在 top 8 末尾（分数较低但有概念内容）
+          semanticHits.push(ch);
+        }
+      }
+      semanticHits.sort((a, b) => b.score - a.score);
+      semanticHits = semanticHits.slice(0, 8);
+    }
   }
 
   if (semanticHits.length > 0) {

@@ -160,7 +160,13 @@ export default function UsagePage() {
         {/* Summary Cards */}
         {summary && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-            <SummaryCard label="当前余额" value={summary.balance != null ? `¥${summary.balance.toLocaleString()}` : '-'} accent="blue" />
+            <SummaryCard label="当前余额" value={summary.balance != null
+                ? (summary.balance >= 1_000_000_000
+                    ? `¥${(summary.balance / 1_000_000_000).toFixed(2)}亿`
+                    : summary.balance >= 10_000
+                      ? `¥${(summary.balance / 10_000).toFixed(2)}万`
+                      : `¥${summary.balance.toFixed(2)}`)
+                : '-'} accent="blue" />
             <SummaryCard label="今日消耗" value={formatCost(summary.usedToday)} accent="red" />
             <SummaryCard label="7 日消耗" value={formatCost(summary.used7d)} accent="orange" />
             <SummaryCard label="30 日消耗" value={formatCost(summary.used30d)} accent="amber" />

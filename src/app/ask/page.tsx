@@ -45,6 +45,7 @@ function getTypeIcon(docType: string): string {
 
 export default function AskPage() {
   const [question, setQuestion] = useState('');
+  const [repoName, setRepoName] = useState('全部仓库');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +62,7 @@ export default function AskPage() {
       const res = await fetch('/api/ai/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify({ question: q, repoName }),
       });
 
       const data = await res.json();
@@ -81,7 +82,7 @@ export default function AskPage() {
     } finally {
       setLoading(false);
     }
-  }, [question]);
+  }, [question, repoName]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -95,6 +96,24 @@ export default function AskPage() {
       <NavBar title="🤖 AI 知识库问答" />
 
       <main className="max-w-3xl mx-auto p-6 space-y-6">
+        {/* Repo Selector */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-slate-600 whitespace-nowrap">知识库：</label>
+            <select
+              value={repoName}
+              onChange={e => setRepoName(e.target.value)}
+              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              disabled={loading}
+            >
+              <option value="全部仓库">全部仓库</option>
+              <option value="teach">teach</option>
+              <option value="worldquant">worldquant</option>
+              <option value="summary-for-work">summary-for-work</option>
+            </select>
+          </div>
+        </div>
+
         {/* Input */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
           <div className="flex gap-3">

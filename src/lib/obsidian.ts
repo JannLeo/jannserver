@@ -176,7 +176,15 @@ function walkMarkdown(
     if (EXCLUDED_DIRS.includes(entry.name)) continue;
 
     const fullPath = path.join(currentDir, entry.name);
-    if (entry.isDirectory()) {
+
+    if (entry.isSymbolicLink()) {
+      try {
+        const realPath = fs.realpathSync(fullPath);
+        if (fs.statSync(realPath).isDirectory()) {
+          walkMarkdown(rootDir, fullPath, out, fileMap);
+        }
+      } catch { /* skip broken symlinks */ }
+    } else if (entry.isDirectory()) {
       walkMarkdown(rootDir, fullPath, out, fileMap);
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       try {

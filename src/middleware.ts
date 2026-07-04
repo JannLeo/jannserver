@@ -12,7 +12,14 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Public paths (no auth needed)
-  const publicPaths = ['/login', '/api/health', '/api/init', '/api/auth/login', '/api/auth/logout', '/api/auth/me', '/_next/', '/favicon.ico'];
+  const publicPaths = [
+    '/login', '/api/health', '/api/init',
+    '/api/auth/login', '/api/auth/logout', '/api/auth/me',
+    '/_next/', '/favicon.ico',
+    // PWA assets
+    '/manifest.json', '/sw.js',
+    '/icons/',
+  ];
   if (publicPaths.some(p => pathname.startsWith(p))) {
     return NextResponse.next();
   }
