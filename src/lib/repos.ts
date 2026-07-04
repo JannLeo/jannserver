@@ -348,6 +348,12 @@ export async function syncRepo(
       upsertRepoDocument(repoId, filePath, title, relPath, cleanContent, hash);
       if (existingDoc) updated++; else added++;
       updateFts('github_md', `${repoId}:${relPath}`, title, cleanContent).catch(() => {});
+      // 写 embeddings 向量（语义检索用）
+      import('./embeddings')
+        .then(({ updateEmbeddings }) =>
+          updateEmbeddings('repo_doc', `${repoId}:${relPath}`, title + '\n\n' + cleanContent)
+        )
+        .catch(err => console.error('[repos] updateEmbeddings failed:', relPath, err));
     }
   }
 

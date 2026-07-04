@@ -270,6 +270,28 @@ CREATE TABLE IF NOT EXISTS video_analysis_reports (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS embeddings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_type TEXT NOT NULL,
+  doc_id TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL DEFAULT 0,
+  content TEXT NOT NULL DEFAULT '',
+  embedding_json TEXT NOT NULL DEFAULT '[]',
+  model TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS kb_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  vault_path TEXT NOT NULL DEFAULT '',
+  file_count INTEGER NOT NULL DEFAULT 0,
+  last_sync_at TEXT,
+  file_map_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 for (const stmt of createSQL.trim().split(";").filter(s => s.trim())) {
   if (stmt.trim()) sqlite.exec(stmt.trim() + ";");
@@ -303,6 +325,12 @@ const indexes = [
   // video_analysis indexes
   `CREATE INDEX IF NOT EXISTS idx_va_items_job ON video_analysis_items(job_id);`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_va_reports_job ON video_analysis_reports(job_id);`,
+  // embeddings indexes
+  `CREATE INDEX IF NOT EXISTS idx_embeddings_doc ON embeddings(doc_type, doc_id);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_doc_chunk ON embeddings(doc_type, doc_id, chunk_index);`,
+  `CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);`,
+  // kb_sources indexes
+  `CREATE INDEX IF NOT EXISTS idx_kb_sources_type_name ON kb_sources(source_type, name);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);

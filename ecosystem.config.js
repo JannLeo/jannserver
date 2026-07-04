@@ -14,6 +14,8 @@ module.exports = {
         AI_API_KEY: '2GwGk0i5ngO504uX6eXhl20hMFbsVsFsAZL6d3MpyJDIEHny',
         MEDIA_CRAWLER_BASE_URL: 'http://127.0.0.1:8080',
         MEDIA_CRAWLER_ENABLED: 'true',
+        OBSIDIAN_VAULT_DIR: '/home/sz/workspace/data/obsidian-vault',
+        EMBEDDING_MODEL: 'text-embedding-3-small',
         PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
       },
       autorestart: true,

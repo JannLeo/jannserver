@@ -377,6 +377,14 @@ ${sourcesBlock}
     console.error('[wiki] updateFts failed:', err);
   }
 
+  // 写 embeddings 向量（语义检索用）
+  try {
+    const { updateEmbeddings } = await import('./embeddings');
+    await updateEmbeddings('wiki_page', `wiki:${pageId}`, title + '\n\n' + summary + '\n\n' + content);
+  } catch (err) {
+    console.error('[wiki] updateEmbeddings failed:', err);
+  }
+
   // 创建 wiki_links：从 content 中抽取概念名，匹配 WQ_CONCEPTS
   try {
     const lowerContent = content.toLowerCase();

@@ -280,3 +280,27 @@ export const videoAnalysisReports = sqliteTable("video_analysis_reports", {
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+export const embeddings = sqliteTable("embeddings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  docType: text("doc_type").notNull(),
+  docId: text("doc_id").notNull(),
+  chunkIndex: integer("chunk_index").notNull().default(0),
+  content: text("content").notNull().default(""),
+  embeddingJson: text("embedding_json").notNull().default("[]"),
+  model: text("model").notNull().default(""),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const kbSources = sqliteTable("kb_sources", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sourceType: text("source_type").notNull(),
+  name: text("name").notNull(),
+  vaultPath: text("vault_path").notNull().default(""),
+  fileCount: integer("file_count").notNull().default(0),
+  lastSyncAt: text("last_sync_at"),
+  fileMapJson: text("file_map_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});

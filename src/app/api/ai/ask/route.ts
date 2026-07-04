@@ -1,22 +1,9 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { db, sqlite, initDb } from '@/lib/db/index';
-import { searchFts, repoDocuments, repoSources, wikiPages, wikiSpaces } from '@/lib/db/schema';
-import { or, like, eq, and } from 'drizzle-orm';
-import { searchWikiPages, getOrCreateSpace, recordWikiError } from '@/lib/wiki';
-import {
-  detectProjectContext,
-  getOrCreateProjectSpace,
-  searchProjectWiki,
-  searchCodeSymbols,
-  type ProjectWikiMatch,
-  type CodeSymbolMatch,
-} from '@/lib/projectBrain';
-import {
-  searchOntologyEntities,
-  getOntologyContextEdges,
-  type OntologyContextEdge,
-} from '@/lib/projectOntology';
+import { searchFts, repoDocuments, repoSources } from '@/lib/db/schema';
+import { or, like } from 'drizzle-orm';
+import { semanticSearch, type SemanticHit } from '@/lib/embeddings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,174 +17,6 @@ function tokenize(text: string): string[] {
     .replace(/[？\?\.\，\,，。\.！\!、、\'\"\'""【】\[\]（）\(\)]/g, ' ')
     .split(/\s+/)
     .filter(t => t.length >= 2);
-}
-
-// ─── Repo-scoped keyword query detection ─────────────────────────────────────
-// 已知仓库名
-const KNOWN_REPO_NAMES = ['summary-for-work', 'worldquant', 'teach'];
-
-// WorldQuant / BRAIN 常见概念关键词 + 中英文同义词扩展
-const KEYWORD_SYNONYMS: Record<string, string[]> = {
-  margin: ['margin', 'Margin', '保证金', '边际', '收益效率'],
-  fitness: ['fitness', 'Fitness', '适应度', '拟合度'],
-  turnover: ['turnover', 'Turnover', '换手率', '换手'],
-  sharpe: ['sharpe', 'Sharpe', '夏普', '夏普比率'],
-  neutralization: ['neutralization', 'Neutralization', '中性化', '中性'],
-  decay: ['decay', 'Decay', '衰减', '衰减期'],
-  alpha: ['alpha', 'Alpha', '阿尔法', '因子'],
-  submission: ['submission', 'Submission', '提交', '提交检查'],
-  backtest: ['backtest', 'Backtest', '回测'],
-  leverage: ['leverage', 'Leverage', '杠杆'],
-  exposure: ['exposure', 'Exposure', '敞口', '暴露'],
-  beta: ['beta', 'Beta', '贝塔'],
-  correlation: ['correlation', 'Correlation', '相关性', '相关'],
-  drawdown: ['drawdown', 'Drawdown', '回撤'],
-  volatility: ['volatility', 'Volatility', '波动率', '波动'],
-  long: ['long', 'Long', '多头', '做多'],
-  short: ['short', 'Short', '空头', '做空'],
-};
-
-interface RepoKeywordQuery {
-  detected: boolean;
-  repoName: string | null;
-  repoId: number | null;
-  keywords: string[];        // 原始关键词
-  searchTerms: string[];     // 扩展后的搜索词（中英文同义词）
-}
-
-/**
- * 检测「repo 名 + 关键词」组合查询
- * 例如："worldquant里面什么是margin" → repo=worldquant, keyword=margin
- */
-function detectRepoKeywordQuery(question: string): RepoKeywordQuery {
-  const q = question.toLowerCase();
-  const result: RepoKeywordQuery = { detected: false, repoName: null, repoId: null, keywords: [], searchTerms: [] };
-
-  // 1. 检测 repo 名
-  let detectedRepo: string | null = null;
-  for (const repo of KNOWN_REPO_NAMES) {
-    if (q.includes(repo.toLowerCase())) {
-      detectedRepo = repo;
-      break;
-    }
-  }
-  if (!detectedRepo) return result;
-
-  // 2. 检测关键词（英文原词 + 同义词）
-  const detectedKeywords: string[] = [];
-  const searchTerms = new Set<string>();
-
-  for (const [canonical, synonyms] of Object.entries(KEYWORD_SYNONYMS)) {
-    for (const syn of synonyms) {
-      if (q.includes(syn.toLowerCase())) {
-        detectedKeywords.push(canonical);
-        // 把所有同义词都加入搜索词
-        for (const s of synonyms) searchTerms.add(s);
-        break; // 同一组同义词只加一次
-      }
-    }
-  }
-
-  if (detectedKeywords.length === 0) return result;
-
-  // 3. 查询 repoId
-  let repoId: number | null = null;
-  try {
-    const srcRow = db.select().from(repoSources).all().find(r => r.name === detectedRepo);
-    if (srcRow) repoId = srcRow.id;
-  } catch { /* ignore */ }
-
-  result.detected = true;
-  result.repoName = detectedRepo;
-  result.repoId = repoId;
-  result.keywords = [...new Set(detectedKeywords)];
-  result.searchTerms = Array.from(searchTerms);
-  return result;
-}
-
-// ─── WorldQuant 概念检测（用于 wiki_page 命中）─────────────────────────────
-interface WQConceptDetection {
-  detected: boolean;
-  concepts: string[];      // canonical concept slugs
-  searchTerms: string[];   // 所有同义词
-}
-
-/**
- * 检测问题是否包含 worldquant/WQ + 概念关键词
- * 仅当同时包含 repo 名和概念关键词时才触发
- */
-function detectWorldQuantConcept(question: string): WQConceptDetection {
-  const q = question.toLowerCase();
-  // 必须包含 worldquant / WQ / BRAIN 平台
-  if (!/worldquant|\bwq\b|brain\s*(平台|platform)/i.test(q)) {
-    return { detected: false, concepts: [], searchTerms: [] };
-  }
-  // 复用 KEYWORD_SYNONYMS 检测概念
-  const concepts: string[] = [];
-  const searchTerms = new Set<string>();
-  for (const [canonical, synonyms] of Object.entries(KEYWORD_SYNONYMS)) {
-    for (const syn of synonyms) {
-      if (q.includes(syn.toLowerCase())) {
-        concepts.push(canonical);
-        for (const s of synonyms) searchTerms.add(s);
-        break;
-      }
-    }
-  }
-  if (concepts.length === 0) return { detected: false, concepts: [], searchTerms: [] };
-  return { detected: true, concepts, searchTerms: Array.from(searchTerms) };
-}
-
-/**
- * 在指定 repo 内搜索关键词（限定 repo_id）
- */
-function rawSearchInRepo(repoId: number, searchTerms: string[]): RawSearchResult[] {
-  const results: RawSearchResult[] = [];
-  const seen = new Set<string>();
-
-  for (const term of searchTerms) {
-    if (!term || term.length < 2) continue;
-    const pattern = `%${term}%`;
-    try {
-      const repoRows = db
-        .select({
-          id: repoDocuments.id,
-          title: repoDocuments.title,
-          content: repoDocuments.content,
-          relPath: repoDocuments.relPath,
-          repoId: repoDocuments.repoId,
-        })
-        .from(repoDocuments)
-        .where(and(eq(repoDocuments.repoId, repoId), or(like(repoDocuments.title, pattern), like(repoDocuments.content, pattern))))
-        .limit(30)
-        .all() as any[];
-
-      for (const row of repoRows) {
-        const key = `github_md:${row.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        results.push({
-          docType: 'github_md',
-          docId: String(row.id),
-          title: String(row.title || ''),
-          content: String(row.content || ''),
-          relPath: String(row.relPath || ''),
-          repoId: row.repoId,
-          repoName: '', // will be filled later
-        });
-      }
-    } catch (err) { console.error('[ai.ask] rawSearchInRepo error:', err); }
-  }
-
-  // 填充 repoName
-  try {
-    const srcRow = db.select().from(repoSources).where(eq(repoSources.id, repoId)).get() as any;
-    if (srcRow) {
-      for (const r of results) r.repoName = srcRow.name;
-    }
-  } catch { /* ignore */ }
-
-  return results;
 }
 
 function buildSearchQueries(question: string): string[] {
@@ -632,197 +451,152 @@ function handleRepoMetaQuery(question: string): { answer: string; sources: any[]
   return { answer, sources, usedKnowledgeBase: true };
 }
 
-// ─── Step 0 NEW: Global Wiki Concept Exact Match ─────────────────────────────────
-
-interface GlobalWikiMatch {
-  page: any;       // wiki_pages row
-  spaceId: number;
-  spaceName: string;
-  matchedTerm: string;   // the term that matched
-}
-
-// WQ concept alias map: normalized form → canonical slug
-// Handles: "self-correlation" / "self correlation" / "selfcorrelation" → "self-correlation"
-const WQ_CONCEPT_ALIAS: Record<string, string> = {
-  // aliases → canonical slug
-  'fitness': 'fitness',
-  'selfcorrelation': 'self-correlation',
-  'self-correlation': 'self-correlation',
-  'self correlation': 'self-correlation',
-  'sharpe': 'sharpe',
-  'sharpe ratio': 'sharpe',
-  'turnover': 'turnover',
-  'returns': 'returns',
-  'margin': 'margin',
-  'drawdown': 'drawdown',
-  'delay': 'delay',
-  'decay': 'decay',
-  'neutralization': 'neutralization',
-  'truncation': 'truncation',
-  'pasteurization': 'pasteurization',
-  'universe': 'universe',
-  'region': 'region',
-  'submission': 'submission',
-  'simulation': 'simulation',
-  'correlation': 'correlation',
-  'alpha': 'alpha',
-  'beta': 'beta',
-  'volatility': 'volatility',
-  'exposure': 'exposure',
-  'leverage': 'leverage',
-};
+// ─── Helpers for the new semantic-search flow ─────────────────────────────────
 
 /**
- * Normalize a search token:
- * - lowercase
- * - strip Chinese/English punctuation and spaces
+ * 统一 AI 调用：替换原本 5 处重复的 fetch 块。
+ * 失败时返回 { answer: 错误信息, error }，让调用方决定如何返回。
  */
-function normalizeTerm(term: string): string {
-  return term
-    .toLowerCase()
-    .replace(/[？\?。，、！？．。，\.,!！\?\[\]\(\)\-'\"''""【】]/g, '')
-    .replace(/\s+/g, '')
-    .trim();
-}
-
-/**
- * Extract all meaningful English tokens from a question.
- * Returns lowercase tokens to normalize mixed-case input like "Fitness".
- */
-function extractEnglishTokens(question: string): string[] {
-  const tokens: string[] = [];
-  // Match English words (including capitalized ones like "Fitness")
-  const englishPattern = /[a-zA-Z][a-zA-Z0-9-]{2,}/g;
-  let match;
-  while ((match = englishPattern.exec(question)) !== null) {
-    const t = match[0].toLowerCase();
-    if (!['the', 'and', 'for', 'with', 'what', 'how', 'when', 'where', 'why', 'which', 'from', 'that', 'this', 'are', 'you', 'your'].includes(t)) {
-      tokens.push(t);
-    }
-  }
-  return [...new Set(tokens)];
-}
-
-/**
- * Attempt to match a question against all wiki pages globally.
- * Does NOT require repo name in the question.
- *
- * Returns a GlobalWikiMatch if a unique best match is found, null otherwise.
- */
-function matchGlobalWikiConcept(question: string): GlobalWikiMatch | null {
+async function callAi(
+  aiBaseUrl: string,
+  aiApiKey: string,
+  aiModel: string,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<{ answer: string; error?: string }> {
   try {
-    const spaceRows = db.select({ id: wikiSpaces.id, name: wikiSpaces.name }).from(wikiSpaces).all() as any[];
-    const spaceMap = new Map<number, string>();
-    for (const s of spaceRows) spaceMap.set(s.id, s.name);
-
-    // Get all wiki pages across all spaces (use raw sqlite for reliability)
-    const rawSqlite: any = sqlite;
-    const allPages = rawSqlite
-      .prepare(`SELECT wp.id, wp.space_id, wp.title, wp.slug, wp.content, wp.confidence
-                FROM wiki_pages wp
-                ORDER BY wp.confidence DESC, wp.id ASC`)
-      .all() as any[];
-
-    // Build lookup maps: title-lowercase → page, slug-lowercase → page
-    const byTitle = new Map<string, any>();
-    const bySlug = new Map<string, any>();
-    const candidates: any[] = [];
-
-    for (const page of allPages) {
-      const titleKey = (page.title || '').toLowerCase();
-      const slugKey = (page.slug || '').toLowerCase();
-      if (titleKey) byTitle.set(titleKey, page);
-      if (slugKey && slugKey !== titleKey) bySlug.set(slugKey, page);
-      candidates.push({ page, titleKey, slugKey });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${aiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: aiModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+    const data = await res.json();
+    return { answer: data.choices?.[0]?.message?.content || 'AI 返回为空' };
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      return { answer: 'AI 请求超时（120s）', error: 'timeout' };
     }
-
-    // 1. Try direct slug match from alias map
-    const englishTokens = extractEnglishTokens(question);
-    for (const token of englishTokens) {
-      const norm = normalizeTerm(token);
-      // Check alias map first
-      const canonicalSlug = WQ_CONCEPT_ALIAS[norm] || WQ_CONCEPT_ALIAS[token] || WQ_CONCEPT_ALIAS[norm.replace(/-/g, '')];
-      if (canonicalSlug && bySlug.has(canonicalSlug)) {
-        const page = bySlug.get(canonicalSlug)!;
-        return {
-          page,
-          spaceId: page.space_id,
-          spaceName: spaceMap.get(page.space_id) || '',
-          matchedTerm: token,
-        };
-      }
-      // Direct slug match (handles "fitness", "sharpe", etc.)
-      if (bySlug.has(norm)) {
-        const page = bySlug.get(norm)!;
-        return {
-          page,
-          spaceId: page.space_id,
-          spaceName: spaceMap.get(page.space_id) || '',
-          matchedTerm: token,
-        };
-      }
-    }
-
-    // 2. Try normalized title match for each extracted token
-    for (const token of englishTokens) {
-      const norm = normalizeTerm(token);
-      if (byTitle.has(norm)) {
-        const page = byTitle.get(norm)!;
-        return {
-          page,
-          spaceId: page.space_id,
-          spaceName: spaceMap.get(page.space_id) || '',
-          matchedTerm: token,
-        };
-      }
-      // Also try without hyphens for title match
-      const normNoHyphen = norm.replace(/-/g, '');
-      for (const [titleKey, page] of byTitle) {
-        if (titleKey === normNoHyphen || titleKey.replace(/-/g, '') === normNoHyphen) {
-          return {
-            page,
-            spaceId: page.space_id,
-            spaceName: spaceMap.get(page.space_id) || '',
-            matchedTerm: token,
-          };
-        }
-      }
-    }
-
-    // 3. Try extracting a "word phrase" from the question:
-    // Match sequences like "word" or "word-word" that appear as-is in slug
-    const slugPattern = /[a-z][a-z0-9-]{2,}/g;
-    let slugMatch;
-    while ((slugMatch = slugPattern.exec(question)) !== null) {
-      const phrase = slugMatch[0];
-      const normPhrase = normalizeTerm(phrase);
-      // Check alias map
-      const canonicalSlug = WQ_CONCEPT_ALIAS[normPhrase];
-      if (canonicalSlug && bySlug.has(canonicalSlug)) {
-        const page = bySlug.get(canonicalSlug)!;
-        return {
-          page,
-          spaceId: page.space_id,
-          spaceName: spaceMap.get(page.space_id) || '',
-          matchedTerm: phrase,
-        };
-      }
-      if (bySlug.has(normPhrase)) {
-        const page = bySlug.get(normPhrase)!;
-        return {
-          page,
-          spaceId: page.space_id,
-          spaceName: spaceMap.get(page.space_id) || '',
-          matchedTerm: phrase,
-        };
-      }
-    }
-
-    return null;
-  } catch (err) {
-    console.error('[ai.ask] matchGlobalWikiConcept error:', err);
-    return null;
+    return { answer: `AI 请求失败: ${err.message}`, error: err.message };
   }
+}
+
+/**
+ * 把 semanticSearch 的 hits 转成 sources 数组（含 title / url / excerpt）。
+ * 从 docId 反查 wiki_pages / repo_documents 表取标题。
+ * docId 约定：
+ *   - wiki_page → 'wiki:42'
+ *   - repo_doc  → '3:docs/readme.md'
+ *   - obsidian_note → 'obsidian:00-总览.md'
+ */
+async function buildSourcesFromSemanticHits(hits: SemanticHit[]): Promise<any[]> {
+  const sources: any[] = [];
+  const seen = new Set<string>();
+
+  // 收集 docId 反查
+  const wikiIds: number[] = [];
+  const repoKeys: { repoId: number; relPath: string }[] = [];
+  for (const h of hits) {
+    if (h.docType === 'wiki_page') {
+      const m = /^wiki:(\d+)$/.exec(h.docId);
+      if (m) wikiIds.push(Number(m[1]));
+    } else if (h.docType === 'repo_doc') {
+      const m = /^(\d+):(.+)$/.exec(h.docId);
+      if (m) repoKeys.push({ repoId: Number(m[1]), relPath: m[2] });
+    }
+  }
+
+  // wiki_page → 反查 title / spaceId
+  const wikiMap = new Map<number, any>();
+  if (wikiIds.length > 0) {
+    try {
+      const rawSqlite: any = sqlite;
+      const ids = wikiIds.join(',');
+      const rows = rawSqlite
+        .prepare(`SELECT id, space_id, title, summary, confidence FROM wiki_pages WHERE id IN (${ids})`)
+        .all() as any[];
+      for (const r of rows) wikiMap.set(r.id, r);
+    } catch (err) {
+      console.error('[ai.ask] buildSources wiki lookup failed:', err);
+    }
+  }
+
+  // repo_doc → 反查 title / repoName
+  const repoDocMap = new Map<string, any>();
+  if (repoKeys.length > 0) {
+    try {
+      const rawSqlite: any = sqlite;
+      for (const k of repoKeys) {
+        const row = rawSqlite
+          .prepare('SELECT id, title, repo_id FROM repo_documents WHERE repo_id = ? AND rel_path = ?')
+          .get(k.repoId, k.relPath) as any;
+        if (row) repoDocMap.set(`${k.repoId}:${k.relPath}`, row);
+      }
+    } catch (err) {
+      console.error('[ai.ask] buildSources repo lookup failed:', err);
+    }
+  }
+
+  for (const h of hits) {
+    const key = `${h.docType}:${h.docId}:${h.chunkIndex}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (h.docType === 'wiki_page') {
+      const m = /^wiki:(\d+)$/.exec(h.docId);
+      const pageId = m ? Number(m[1]) : 0;
+      const meta = wikiMap.get(pageId);
+      sources.push({
+        docType: 'wiki_page',
+        docId: String(pageId),
+        title: meta?.title || h.docId,
+        repoName: 'worldquant',
+        url: `/wiki?spaceId=${meta?.space_id || ''}&pageId=${pageId}`,
+        excerpt: meta?.summary || h.content.slice(0, 200),
+        confidence: meta?.confidence || 'medium',
+        score: h.score,
+      });
+    } else if (h.docType === 'repo_doc') {
+      const meta = repoDocMap.get(h.docId);
+      sources.push({
+        docType: 'github_md',
+        docId: String(meta?.id || ''),
+        title: meta?.title || h.docId,
+        repoName: '',
+        relPath: h.docId.replace(/^\d+:/, ''),
+        url: `/repos`,
+        excerpt: h.content.slice(0, 200),
+        score: h.score,
+      });
+    } else if (h.docType === 'obsidian_note') {
+      const relPath = h.docId.replace(/^obsidian:/, '');
+      sources.push({
+        docType: 'obsidian_note',
+        docId: h.docId,
+        title: relPath,
+        repoName: 'obsidian',
+        url: `/obsidian`,
+        excerpt: h.content.slice(0, 200),
+        score: h.score,
+      });
+    }
+  }
+
+  return sources;
 }
 
 export async function POST(req: NextRequest) {
@@ -855,391 +629,61 @@ export async function POST(req: NextRequest) {
   }
   // ────────────────────────────────────────────────────────────────
 
-  // ── Step 0 NEW: 全局 Wiki 精确命中（不依赖 repoName）──────────────
-  // 命中后不直接返回 page.content，而是把 wiki 内容作为上下文 → 调 AI 回答用户问题。
-  // wikiContextParts/wikiSources 在这里声明，被 Step 0 / Step 0.5 共同填充，
-  // 在 Step 0.5 之后统一交给 AI。无论是否为定义型问题都走 AI，让 AI 处理主观/
-  // 推荐类问题（如"印象最深刻的alpha"），而不是直接复述 wiki 定义。
-  const wikiContextParts: string[] = [];
-  const wikiSources: any[] = [];
-  let globalWikiMatch: { page: any; spaceId: number; spaceName: string; matchedTerm: string } | null = null;
-  {
-    const route = matchGlobalWikiConcept(question);
-    if (route) {
-      console.log('[ai.ask] wiki_exact matched:', route.matchedTerm, '→ pageId:', route.page.id);
-      globalWikiMatch = route;
-      wikiContextParts.push(
-        `### Wiki 概念页: ${route.page.title} (confidence=${route.page.confidence || 'high'})\n${route.page.content}`
-      );
-      wikiSources.push({
-        docType: 'wiki_page',
-        docId: String(route.page.id),
-        title: route.page.title,
-        repoName: route.spaceName,
-        url: `/wiki?spaceId=${route.spaceId}&pageId=${route.page.id}`,
-        excerpt: String(route.page.content || '').slice(0, 300),
-        confidence: route.page.confidence || 'high',
-      });
-    }
-  }
-  // ────────────────────────────────────────────────────────────────
-
-  // ── Step 0.5: Wiki 知识层命中检测（仅 worldquant/WQ 概念）─────────
-  // wiki 命中后不直接返回定义页，而是把 wiki 内容作为上下文 + 补充 repo_documents
-  // 搜索 → 调 AI 生成回答，让 AI 真正回答用户的问题（而不是复述定义）。
-  const wqConcept = detectWorldQuantConcept(question);
-  let wqSpaceId: number | null = null;
-
-  if (wqConcept.detected) {
-    console.log('[ai.ask] WQ concept detected:', wqConcept.concepts);
-    try {
-      wqSpaceId = getOrCreateSpace('worldquant');
-      const wikiHits = searchWikiPages(wqSpaceId, wqConcept.searchTerms);
-      console.log('[ai.ask] wikiHits count:', wikiHits.length);
-
-      // 收集 wiki 上下文（top 3），不直接返回
-      for (const hit of wikiHits.slice(0, 3)) {
-        const page = db.select().from(wikiPages).where(eq(wikiPages.id, hit.id)).get() as any;
-        if (page) {
-          wikiContextParts.push(
-            `### Wiki 概念页: ${page.title} (confidence=${page.confidence})\n${page.content}`
-          );
-          wikiSources.push({
-            docType: 'wiki_page',
-            docId: String(page.id),
-            title: page.title,
-            repoName: 'worldquant',
-            url: `/wiki?spaceId=${wqSpaceId}&pageId=${page.id}`,
-            excerpt: page.summary || String(page.content || '').slice(0, 200),
-            confidence: page.confidence,
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[ai.ask] wiki detection failed:', err);
-    }
+  // ── Step 0.5 NEW: 语义检索（embedding-based）──────────────────────
+  // 用向量相似度检索 wiki_page / repo_doc / obsidian_note chunks，
+  // 命中后把 chunks 作为上下文喂给 AI，让 AI 基于知识库回答（而不是复述定义）。
+  // 语义检索覆盖了"用词不同但语义相近"的复杂问题。
+  let semanticHits: SemanticHit[] = [];
+  try {
+    semanticHits = await semanticSearch(question, 8, { minScore: 0.25 });
+    console.log('[ai.ask] semanticSearch hits:', semanticHits.length,
+      'top scores:', semanticHits.slice(0, 3).map(h => h.score.toFixed(3)));
+  } catch (err) {
+    console.error('[ai.ask] semanticSearch failed (will fall back to FTS):', err);
   }
 
-  // 有 wiki 上下文 → 调 AI 回答用户问题（而不是复述 wiki 定义）
-  if (wikiContextParts.length > 0) {
-    // 补充 repo_documents 搜索，获取 wiki 没覆盖的细节
-    const repoContextParts: string[] = [];
-    const repoSourcesList: any[] = [];
-    try {
-      const srcRow = db.select().from(repoSources).all().find((r: any) => r.name === 'worldquant') as any;
-      if (srcRow) {
-        // 优先用 WQ 同义词；若仅 Step 0 全局命中，则用 matchedTerm + 问题 token
-        const searchTerms = wqConcept.detected && wqConcept.searchTerms.length > 0
-          ? wqConcept.searchTerms
-          : (globalWikiMatch ? [globalWikiMatch.matchedTerm, ...tokenize(question)] : tokenize(question));
-        const repoResults = rawSearchInRepo(srcRow.id, searchTerms);
-        if (repoResults.length > 0) {
-          const scoredRepoDocs = rerankAndSelect(repoResults, question, 'worldquant').slice(0, 3);
-          if (scoredRepoDocs.length > 0) {
-            const built = buildContextAndSources(scoredRepoDocs);
-            repoContextParts.push(built.prompt);
-            repoSourcesList.push(...built.sources);
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[ai.ask] wiki+repo supplementary search failed:', err);
-    }
-
-    const allContext = [...wikiContextParts, ...repoContextParts].join('\n\n');
-    // 合并 sources，去重（wiki_page + github_md）
-    const seenSrcKey = new Set<string>();
-    const allSources: any[] = [];
-    for (const s of [...wikiSources, ...repoSourcesList]) {
-      const key = `${s.docType}::${s.docId || s.title}`;
-      if (seenSrcKey.has(key)) continue;
-      seenSrcKey.add(key);
-      allSources.push(s);
-    }
-
-    const systemPrompt = `你是一个知识库问答助手。根据提供的「Wiki 概念页 + 知识库文档」上下文回答用户问题。
-
-**回答规则：**
-1. 基于上下文中的内容回答用户的具体问题，**不要简单复述定义**
-2. 如果问题是主观性/总结性的（如"印象最深刻"、"最重要的"、"最常用"），结合知识库内容给出有针对性的回答，而不是罗列定义
-3. 如果上下文和问题不完全匹配，诚实说明"我没有找到精确匹配的内容，以下基于相近信息回答"，然后基于你的通用知识给出完整有用答案
-4. 优先引用标题最相关的来源，在回答中说明来自哪个来源（如"根据《XXX》..."）
-5. 不要被不相关 sources 带偏，只使用与问题语义最相关的内容
-6. 用中文回答，条理清晰，适当分段
-7. **最关键**：如果所有 sources 都与问题无关或知识库内容很少/不相关，**完全基于你的通用知识**给出完整有用的回答，不要说"无法回答"、不要拒绝回答`;
-
-    const userPrompt = `${allContext}
-
-用户问题：${question}`;
-
-    let answer = '';
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
-      const res = await fetch(`${aiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-      const data = await res.json();
-      answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
-    } catch (err: any) {
-      if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources: allSources, error: 'AI 请求超时（120s）', usedKnowledgeBase: true });
-      return NextResponse.json({ configured: true, sources: allSources, error: `AI 请求失败: ${err.message}`, usedKnowledgeBase: true });
-    }
-
-    return NextResponse.json({
-      configured: true,
-      sources: allSources,
-      usedKnowledgeBase: true,
-      answer,
-      wikiHit: true,
-    });
-  }
-  // ────────────────────────────────────────────────────────────────
-
-  // ── Step 0.6: Project Brain 项目级问答 ──────────────────────────
-  // 检测问题是否包含项目关键词（robin/selfie/tx/rx/efuse/fpga/...）
-  // 命中后：project_wiki + code_symbol 都进入上下文 → 调 AI 生成回答
-  // 注意：不是直接返回 wiki 内容，而是用 wiki/code 作为上下文让 AI 回答用户问题
-  const projectHit = detectProjectContext(question);
-  if (projectHit.detected) {
-    console.log('[ai.ask] project context detected:', {
-      repoName: projectHit.repoName,
-      repoId: projectHit.repoId,
-      terms: projectHit.terms,
-    });
-
-    let projectWikiHits: ProjectWikiMatch[] = [];
-    let codeSymbolHits: CodeSymbolMatch[] = [];
-    let ontologyEdges: OntologyContextEdge[] = [];
-    let projectSpaceId: number | null = null;
-
-    if (projectHit.repoId) {
-      try {
-        projectSpaceId = getOrCreateProjectSpace(projectHit.repoName!, projectHit.repoId);
-      } catch (err) {
-        console.error('[ai.ask] getOrCreateProjectSpace failed:', err);
-      }
-
-      if (projectSpaceId) {
-        try {
-          projectWikiHits = searchProjectWiki(
-            projectSpaceId,
-            projectHit.terms,
-            // 优先匹配项目级页面类型
-            ['project_overview', 'module_summary', 'feature_summary', 'config_summary', 'commit_summary']
-          );
-        } catch (err) {
-          console.error('[ai.ask] searchProjectWiki failed:', err);
-        }
-      }
-
-      try {
-        codeSymbolHits = searchCodeSymbols(projectHit.repoId, projectHit.terms);
-      } catch (err) {
-        console.error('[ai.ask] searchCodeSymbols failed:', err);
-      }
-
-      // Ontology: 搜实体 → 取 1-hop 关系,作为「关系上下文」加进 AI prompt
-      try {
-        const entityHits = searchOntologyEntities(projectHit.repoId, projectHit.terms);
-        if (entityHits.length > 0) {
-          ontologyEdges = getOntologyContextEdges(
-            entityHits.slice(0, 8).map((h) => h.entity.id),
-            40
-          );
-        }
-      } catch (err) {
-        console.error('[ai.ask] ontology lookup failed:', err);
-      }
-    }
-
-    console.log(
-      '[ai.ask] projectWikiHits:', projectWikiHits.length,
-      'codeSymbolHits:', codeSymbolHits.length,
-      'ontologyEdges:', ontologyEdges.length
+  if (semanticHits.length > 0) {
+    // 构造上下文：每条 hit 一段（docType/docId/score 标注）
+    const contextParts: string[] = semanticHits.map((h, i) =>
+      `[${i + 1}] docType=${h.docType} score=${h.score.toFixed(3)} docId=${h.docId}\n${h.content}`
     );
 
-    if (projectWikiHits.length > 0 || codeSymbolHits.length > 0 || ontologyEdges.length > 0) {
-      // 构造项目上下文 + sources,调 AI 回答用户问题
-      const contextParts: string[] = [];
-      const sources: any[] = [];
-      const seenSourceKey = new Set<string>();
+    // 构造 sources：从 docId 反查 title
+    const sources = await buildSourcesFromSemanticHits(semanticHits);
 
-      // 0) Ontology 关系上下文(优先,让 AI 知道实体之间的关系)
-      if (ontologyEdges.length > 0) {
-        const edgeLines = ontologyEdges.slice(0, 30).map((e) => {
-          const conf = e.confidence === 'high' ? '' : e.confidence === 'medium' ? ' (中置信)' : ' (低置信)';
-          return `- ${e.fromName} [${e.fromType}] --${e.relationType}--> ${e.toName} [${e.toType}]${conf}`;
-        });
-        contextParts.push(`### 项目本体关系\n${edgeLines.join('\n')}`);
-      }
-
-      // 1) project_wiki 命中
-      for (const hit of projectWikiHits.slice(0, 3)) {
-        const srcKey = `project_wiki:${hit.id}`;
-        if (seenSourceKey.has(srcKey)) continue;
-        seenSourceKey.add(srcKey);
-        contextParts.push(
-          `### 项目 Wiki: ${hit.title} (pageType=${hit.pageType}, confidence=${hit.confidence})\n${hit.content}`
-        );
-        sources.push({
-          docType: 'project_wiki',
-          docId: String(hit.id),
-          pageType: hit.pageType,
-          title: hit.title,
-          repoName: projectHit.repoName,
-          url: `/wiki?spaceId=${projectSpaceId}&pageId=${hit.id}`,
-          excerpt: hit.summary || String(hit.content || '').slice(0, 200),
-          confidence: hit.confidence,
-        });
-      }
-
-      // 2) code_symbol 命中（每条最多 600 字片段）
-      for (const hit of codeSymbolHits.slice(0, 6)) {
-        const srcKey = `code:${hit.fileId}:${hit.symbolName || hit.relPath}`;
-        if (seenSourceKey.has(srcKey)) continue;
-        seenSourceKey.add(srcKey);
-        const symDesc = hit.type === 'symbol'
-          ? `${hit.symbolType} ${hit.symbolName}${hit.signature ? ' ' + hit.signature : ''} (lines ${hit.startLine}-${hit.endLine})`
-          : `file ${hit.relPath}`;
-        const lineParam = hit.startLine ? `&line=${hit.startLine}` : '';
-        contextParts.push(
-          `### 代码: ${hit.relPath}\n${symDesc}\n${hit.summary || ''}`.trim()
-        );
-        sources.push({
-          docType: hit.type === 'symbol' ? 'code_symbol' : 'code_file',
-          fileId: hit.fileId,
-          relPath: hit.relPath,
-          title: hit.type === 'symbol' ? `${hit.symbolName} (${hit.relPath})` : hit.relPath,
-          symbolType: hit.symbolType,
-          startLine: hit.startLine,
-          endLine: hit.endLine,
-          repoName: projectHit.repoName,
-          repoId: projectHit.repoId,
-          url: `/code?repoId=${projectHit.repoId}&fileId=${hit.fileId}${lineParam}`,
-          excerpt: hit.signature || hit.summary || '',
-        });
-      }
-
-      const systemPrompt = `你是一个项目知识库问答助手。根据提供的「项目本体关系 + 项目 Wiki + 代码符号」上下文回答用户问题。
+    const systemPrompt = `你是一个知识库问答助手。根据提供的「知识库片段」上下文回答用户问题。
 
 **回答规则：**
-1. 只基于上下文中的内容回答，不要编造文件路径/函数名/配置值/commit hash
-2. 如果上下文和问题不完全匹配，明确说明"我没有在项目知识库中找到精确匹配，以下是相关信息："
-3. 在回答中引用 sources 中的文件路径、函数名、commit hash，让用户能定位到来源
-4. 如果涉及代码，明确说明在哪个文件、哪一行附近
-5. 如果上下文中有「项目本体关系」(entity --relation--> entity)，沿关系推理回答（例如 Module implementedBy File → 该模块的实现文件；Module configuredBy Config → 该模块的相关配置）
-6. 用中文回答，条理清晰，适当分段
-7. 如果上下文完全无法回答问题，直接说"我没有在项目知识库中找到明确来源。"`;
+1. 基于上下文中的内容回答用户的具体问题，不要简单复述定义
+2. 如果问题是主观性/总结性的（如"印象最深刻"、"最重要的"、"最常用"），结合知识库内容给出有针对性的回答，而不是罗列定义
+3. 如果上下文和问题不完全匹配，诚实说明"未找到精确匹配，基于相近信息回答"，然后基于通用知识给出完整答案
+4. 在回答中标注引用来源（如"根据《XXX》..."）
+5. 用中文回答，条理清晰，适当分段
+6. 如果所有上下文都与问题无关，完全基于你的通用知识回答，不要拒绝
 
-      const userPrompt = `### 项目知识库上下文
-${contextParts.join('\n\n')}
+**知识库片段（按相关度排序）：**
+${contextParts.join('\n\n---\n\n')}`;
 
-用户问题：${question}`;
+    const userPrompt = `用户问题：${question}`;
 
-      let answer = '';
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 120000);
-        const res = await fetch(`${aiBaseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-        const data = await res.json();
-        answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          return NextResponse.json({ configured: true, sources, error: 'AI 请求超时（120s）', usedKnowledgeBase: true });
-        }
-        return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}`, usedKnowledgeBase: true });
-      }
-
+    const { answer, error } = await callAi(aiBaseUrl, aiApiKey, aiModel, systemPrompt, userPrompt);
+    if (error) {
       return NextResponse.json({
         configured: true,
         sources,
         usedKnowledgeBase: true,
         answer,
-        route: 'project_brain',
-        projectBrainHit: true,
-        repoName: projectHit.repoName,
+        error,
+        route: 'semantic',
       });
     }
-
-    // project context 检测到但 wiki/code 都未命中 → 继续走 Step 1，最后会写入 wiki_error_book
-    console.log('[ai.ask] project context detected but no wiki/code hits, falling through to Step 1');
-  }
-  // ────────────────────────────────────────────────────────────────
-
-  // ── Step 1: Repo 关键词查询（repo 名 + 概念关键词）──────────────
-  // 例如 "worldquant里面什么是margin" → 限定 worldquant repo 搜索 margin
-  const repoKwQuery = detectRepoKeywordQuery(question);
-  if (repoKwQuery.detected && repoKwQuery.searchTerms.length > 0) {
-    console.log('[ai.ask] repoKeywordQuery detected:', {
-      repoName: repoKwQuery.repoName,
-      repoId: repoKwQuery.repoId,
-      keywords: repoKwQuery.keywords,
-      searchTerms: repoKwQuery.searchTerms,
+    return NextResponse.json({
+      configured: true,
+      sources,
+      usedKnowledgeBase: true,
+      answer,
+      route: 'semantic',
     });
-
-    // 即使 repo 不在数据库里，也不能走通用 FTS 伪装成知识库事实
-    if (!repoKwQuery.repoId) {
-      console.log('[ai.ask] repo not found in database, using fallback');
-    } else {
-      const repoScopedResults = rawSearchInRepo(repoKwQuery.repoId, repoKwQuery.searchTerms);
-      console.log('[ai.ask] repoScopedResults count:', repoScopedResults.length);
-
-      if (repoScopedResults.length > 0) {
-        // 命中：限定 repo 内有相关文档，走知识库回答
-        const scoredDocs = rerankAndSelect(repoScopedResults, question, repoKwQuery.repoName);
-        console.log('[ai.ask] repoScoped scoredDocs:', scoredDocs.map(s => ({ title: s.title.slice(0, 40), score: s.score })));
-
-        if (scoredDocs.length > 0) {
-          const { prompt, sources } = buildContextAndSources(scoredDocs);
-          const systemPrompt = `你是一个知识库问答助手。根据提供的「知识库上下文」回答用户问题。
-
-**回答规则：**
-1. 只基于 sources 中的内容回答，不要编造信息
-2. 如果 sources 和问题不完全匹配，诚实说明"我没有找到精确匹配的内容，以下基于相近信息回答"，然后基于你的通用知识给出完整有用答案
-3. 优先引用标题最相关的来源，在回答中说明来自哪个来源（如"根据《XXX》..."）
-4. 不要被不相关 sources 带偏，只使用与问题语义最相关的内容
-5. 用中文回答，条理清晰，适当分段
-6. **最关键**：如果所有 sources 都与问题无关或知识库内容很少/不相关，**完全基于你的通用知识**给出完整有用的回答，不要说"无法回答"、不要拒绝回答`;
-
-          const userPrompt = `${prompt}\n\n用户问题：${question}`;
-          let answer = '';
-          try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 120000);
-            const res = await fetch(`${aiBaseUrl}/chat/completions`, {
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
-              signal: controller.signal,
-            });
-            clearTimeout(timeout);
-            if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-            const data = await res.json();
-            answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
-          } catch (err: any) {
-            if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources, error: 'AI 请求超时（120s）' });
-            return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}` });
-          }
-          return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer, route: 'repo_search' });
-        }
-      }
-    }
-
-    // 未命中：继续到下方通用 FTS fallback 路径
-    // （不要 early return，让 scoredDocs=0 时走通用 AI 兜底）
   }
   // ────────────────────────────────────────────────────────────────
 
@@ -1277,29 +721,12 @@ ${contextParts.join('\n\n')}
 3. 条理清晰，适当分段`;
 
     const userPrompt = `用户问题：${question}`;
-    let answer = '';
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
-      const res = await fetch(`${aiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-      const data = await res.json();
-      answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
-    } catch (err: any) {
-      if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: 'AI 请求超时（120s）' });
-      return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer: `AI 请求失败: ${err.message}` });
-    }
+    const { answer } = await callAi(aiBaseUrl, aiApiKey, aiModel, systemPrompt, userPrompt);
     return NextResponse.json({ configured: true, sources: [], usedKnowledgeBase: false, answer, route: 'fallback' });
   }
 
   const { prompt, sources } = buildContextAndSources(scoredDocs);
-    console.log('[ai.ask] final sources count:', sources.length);
+  console.log('[ai.ask] final sources count:', sources.length);
 
   const systemPrompt = `你是一个知识库问答助手。根据提供的「知识库上下文」回答用户问题。
 
@@ -1312,25 +739,6 @@ ${contextParts.join('\n\n')}
 6. **最关键**：如果所有 sources 都与问题无关或知识库内容很少/不相关，**完全基于你的通用知识**给出完整有用的回答，不要说"无法回答"、不要拒绝回答`;
 
   const userPrompt = `${prompt}\n\n用户问题：${question}`;
-
-  let answer = '';
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
-    const res = await fetch(`${aiBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: aiModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.3 }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-    const data = await res.json();
-    answer = data.choices?.[0]?.message?.content || 'AI 返回为空';
-  } catch (err: any) {
-    if (err.name === 'AbortError') return NextResponse.json({ configured: true, sources, error: 'AI 请求超时（120s）' });
-    return NextResponse.json({ configured: true, sources, error: `AI 请求失败: ${err.message}` });
-  }
-
-  return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer, route: 'repo_search' });
+  const { answer } = await callAi(aiBaseUrl, aiApiKey, aiModel, systemPrompt, userPrompt);
+  return NextResponse.json({ configured: true, sources, usedKnowledgeBase: true, answer, route: 'fts' });
 }
