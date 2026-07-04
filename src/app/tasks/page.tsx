@@ -1,7 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import NavBar from '@/components/NavBar';
 import { format } from 'date-fns';
 
@@ -16,6 +15,10 @@ export default function TasksPage() {
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+
+  const [delegatingId, setDelegatingId] = useState<string | null>(null);
+  const [delegateResult, setDelegateResult] = useState<{taskId: string; ok: boolean; msg: string} | null>(null);
+  const [delegateConfirm, setDelegateConfirm] = useState<{id: string; title: string} | null>(null);
 
   const fetchTasks = async () => {
     setLoading(true);
@@ -58,6 +61,39 @@ export default function TasksPage() {
     fetchTasks();
   };
 
+  const handleDelegate = async (taskId: string, taskTitle: string, projectName: string | null) => {
+    setDelegatingId(taskId);
+    setDelegateConfirm(null);
+    setDelegateResult(null);
+
+    try {
+      const res = await fetch('/api/tasks/delegations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          taskTitle,
+          projectName: projectName || undefined,
+        }),
+      });
+      const data = await res.json();
+      setDelegateResult({ taskId, ok: data.ok ?? false, msg: data.msg || (data.ok ? '已交给 AI 处理' : (data.error || '提交失败')) });
+
+      if (data.ok) {
+        // Mark task as done immediately
+        await fetch(`/api/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'done' }),
+        });
+        fetchTasks();
+      }
+    } catch (err: any) {
+      setDelegateResult({ taskId, ok: false, msg: err.message || '提交失败' });
+    }
+    setDelegatingId(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <NavBar title="✅ 任务" />
@@ -76,6 +112,19 @@ export default function TasksPage() {
             onKeyDown={e => e.key === 'Enter' && handleCreate()} />
           <button onClick={handleCreate} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">添加</button>
         </div>
+
+        {/* 委托结果提示 */}
+        {delegateResult && (
+          <div className={`mb-4 px-4 py-3 rounded-xl text-sm flex items-start gap-2 ${
+            delegateResult.ok
+              ? 'bg-green-50 border border-green-200 text-green-700'
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}>
+            <span>{delegateResult.ok ? '✅' : '❌'}</span>
+            <span>{delegateResult.msg}</span>
+            <button onClick={() => setDelegateResult(null)} className="ml-auto text-slate-400 hover:text-slate-600">✕</button>
+          </div>
+        )}
 
         <div className="space-y-2">
           {loading ? (
@@ -100,14 +149,18 @@ export default function TasksPage() {
             </div>
           ) : tasks.map(t => {
             const projectName = getProjectName(t.projectId);
+            const isDelegating = delegatingId === t.id;
             return (
             <div key={t.id} className="bg-white rounded-lg px-4 py-3 border border-slate-100 hover:border-blue-200 hover:shadow-sm transition-all duration-200 flex items-center gap-3 group">
               <button onClick={() => handleStatus(t.id, t.status)}
                 className={`w-5 h-5 rounded border-2 flex items-center justify-center text-xs transition-all ${t.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-blue-400'}`}>
                 {t.status === 'done' && '✓'}
               </button>
-              <span className={`flex-1 text-sm ${t.status === 'done' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{t.title}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm ${t.status === 'done' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{t.title}</div>
+                {projectName && <div className="text-xs text-slate-400 mt-0.5">{projectName}</div>}
+              </div>
+              <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
                 t.priority === 'high'
                   ? 'bg-red-50 text-red-600 border border-red-200'
                   : t.priority === 'medium'
@@ -116,13 +169,67 @@ export default function TasksPage() {
               }`}>
                 {t.priority === 'high' ? '🔥 高' : t.priority === 'medium' ? '📌 中' : '💤 低'}
               </span>
-              {projectName && <span className="text-xs text-blue-500 bg-blue-50 px-2 py-0.5 rounded">{projectName}</span>}
-              <button onClick={() => handleDelete(t.id)} className="text-slate-300 hover:text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+
+              {/* 交给 AI 按钮 — 只对未完成的任务显示 */}
+              {t.status !== 'done' && (
+                <button
+                  onClick={() => setDelegateConfirm({ id: t.id, title: t.title })}
+                  disabled={isDelegating}
+                  className="text-xs px-2.5 py-1 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-200 hover:from-indigo-100 hover:to-purple-100 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 flex items-center gap-1 flex-shrink-0"
+                  title="交给 AI 完成"
+                >
+                  {isDelegating ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-indigo-300/30 border-t-indigo-500 rounded-full animate-spin" />
+                      提交中
+                    </>
+                  ) : (
+                    <>🤖 交给AI</>
+                  )}
+                </button>
+              )}
+
+              <button onClick={() => handleDelete(t.id)} className="text-slate-300 hover:text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">✕</button>
             </div>
             );
           })}
         </div>
       </main>
+
+      {/* 确认弹窗 */}
+      {delegateConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setDelegateConfirm(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-800">🤖 确认交给 AI 处理</h3>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-slate-600 mb-1">确定要将以下任务交给 <strong>AI Agent</strong> 处理吗？</p>
+              <div className="bg-slate-50 rounded-lg px-3 py-2.5 text-sm text-slate-700 font-medium mt-3 mb-1">
+                {delegateConfirm.title}
+              </div>
+              <p className="text-xs text-slate-400">任务将标记为已完成，AI Agent 会在后台执行并在完成后通知你。</p>
+            </div>
+            <div className="px-5 py-4 border-t border-slate-100 flex gap-2">
+              <button
+                onClick={() => {
+                  const t = tasks.find(x => x.id === delegateConfirm.id);
+                  handleDelegate(delegateConfirm.id, delegateConfirm.title, getProjectName(t?.projectId ?? null));
+                }}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg text-sm font-medium hover:from-indigo-600 hover:to-purple-600"
+              >
+                ✅ 确认，交给 AI
+              </button>
+              <button
+                onClick={() => setDelegateConfirm(null)}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm hover:bg-slate-50"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
