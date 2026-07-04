@@ -16,6 +16,9 @@ module.exports = {
         MEDIA_CRAWLER_ENABLED: 'true',
         OBSIDIAN_VAULT_DIR: '/home/sz/workspace/data/obsidian-vault',
         EMBEDDING_MODEL: 'text-embedding-3-small',
+        BRAIN_API_URL: 'https://api.worldquantbrain.com',
+        BRAIN_CREDENTIAL_EMAIL: 'liujunnanjann@163.com',
+        BRAIN_CREDENTIAL_PASSWORD: 'liujn2014',
         PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
       },
       autorestart: true,

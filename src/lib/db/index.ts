@@ -292,6 +292,43 @@ CREATE TABLE IF NOT EXISTS kb_sources (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS brain_alphas (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT '',
+  stage TEXT NOT NULL DEFAULT '',
+  grade TEXT NOT NULL DEFAULT '',
+  type TEXT NOT NULL DEFAULT '',
+  expression TEXT NOT NULL DEFAULT '',
+  settings_json TEXT NOT NULL DEFAULT '{}',
+  sharpe TEXT NOT NULL DEFAULT '',
+  fitness TEXT NOT NULL DEFAULT '',
+  turnover TEXT NOT NULL DEFAULT '',
+  returns TEXT NOT NULL DEFAULT '',
+  drawdown TEXT NOT NULL DEFAULT '',
+  margin TEXT NOT NULL DEFAULT '',
+  pnl TEXT NOT NULL DEFAULT '',
+  book_size TEXT NOT NULL DEFAULT '',
+  long_count INTEGER NOT NULL DEFAULT 0,
+  short_count INTEGER NOT NULL DEFAULT 0,
+  start_date TEXT NOT NULL DEFAULT '',
+  checks_json TEXT NOT NULL DEFAULT '[]',
+  date_submitted TEXT,
+  self_corr_max TEXT,
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS brain_user_info (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  display_name TEXT NOT NULL DEFAULT '',
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  last_sync_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 for (const stmt of createSQL.trim().split(";").filter(s => s.trim())) {
   if (stmt.trim()) sqlite.exec(stmt.trim() + ";");
@@ -331,6 +368,9 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);`,
   // kb_sources indexes
   `CREATE INDEX IF NOT EXISTS idx_kb_sources_type_name ON kb_sources(source_type, name);`,
+  // brain indexes
+  `CREATE INDEX IF NOT EXISTS idx_brain_alphas_status ON brain_alphas(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_brain_alphas_synced ON brain_alphas(synced_at);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);

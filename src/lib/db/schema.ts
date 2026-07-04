@@ -304,3 +304,43 @@ export const kbSources = sqliteTable("kb_sources", {
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── WorldQuant BRAIN ────────────────────────────────────────────────────────
+export const brainAlphas = sqliteTable("brain_alphas", {
+  id: text("id").primaryKey(),
+  status: text("status").notNull().default(""),
+  stage: text("stage").notNull().default(""),
+  grade: text("grade").notNull().default(""),
+  type: text("type").notNull().default(""),
+  expression: text("expression").notNull().default(""),
+  settingsJson: text("settings_json").notNull().default("{}"),
+  sharpe: text("sharpe").notNull().default(""),
+  fitness: text("fitness").notNull().default(""),
+  turnover: text("turnover").notNull().default(""),
+  returns: text("returns").notNull().default(""),
+  drawdown: text("drawdown").notNull().default(""),
+  margin: text("margin").notNull().default(""),
+  pnl: text("pnl").notNull().default(""),
+  bookSize: text("book_size").notNull().default(""),
+  longCount: integer("long_count").notNull().default(0),
+  shortCount: integer("short_count").notNull().default(0),
+  startDate: text("start_date").notNull().default(""),
+  checksJson: text("checks_json").notNull().default("[]"),
+  dateSubmitted: text("date_submitted"),
+  selfCorrMax: text("self_corr_max"),
+  rawJson: text("raw_json").notNull().default("{}"),
+  syncedAt: text("synced_at").notNull().$defaultFn(() => new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const brainUserInfo = sqliteTable("brain_user_info", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().default(""),
+  email: text("email").notNull().default(""),
+  displayName: text("display_name").notNull().default(""),
+  rawJson: text("raw_json").notNull().default("{}"),
+  lastSyncAt: text("last_sync_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
