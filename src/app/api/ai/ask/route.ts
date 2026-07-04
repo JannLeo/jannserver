@@ -635,11 +635,37 @@ export async function POST(req: NextRequest) {
   // 语义检索覆盖了"用词不同但语义相近"的复杂问题。
   let semanticHits: SemanticHit[] = [];
   try {
-    semanticHits = await semanticSearch(question, 8, { minScore: 0.25 });
+    // 用较大 topK 避免 n-gram 对通用词的天然偏好导致目标 repo 文档落选
+    // n-gram cosine 对 CS 课程 "fitness function" 天然高分（0.92+），WorldQuant 概念文档（~0.80）需加大候选集
+    const SEARCH_TOP_K = 800;
+    semanticHits = await semanticSearch(question, SEARCH_TOP_K, { minScore: 0.20 });
     console.log('[ai.ask] semanticSearch hits:', semanticHits.length,
       'top scores:', semanticHits.slice(0, 3).map(h => h.score.toFixed(3)));
   } catch (err) {
     console.error('[ai.ask] semanticSearch failed (will fall back to FTS):', err);
+  }
+
+  // Repo hint 加权：命中有明确 repo 偏向时，大幅提升对应来源的分数
+  // 因为 n-gram embedding 对通用词（如 fitness）会匹配 CS 课程的 fitness function，
+  // 而 WorldQuant 的 fitness 反而被压低，需要足够大的 boost 才能扭转排序
+  const rh = detectRepoHint(question);
+  if (rh && semanticHits.length > 0) {
+    for (const h of semanticHits) {
+      let boost = 0;
+      if (h.docType === 'obsidian_note') {
+        const relPath = h.docId.replace(/^obsidian:/, '');
+        if (relPath.startsWith(rh + '/') || relPath.startsWith(rh + '\\')) boost = 0.55;
+      } else if (h.docType === 'repo_doc') {
+        boost = 0.05;
+      } else if (h.docType === 'wiki_page') {
+        boost = 0.55;
+      }
+      h.score += boost;
+    }
+    semanticHits.sort((a, b) => b.score - a.score);
+    semanticHits = semanticHits.slice(0, 8);
+    console.log('[ai.ask] after repoHint boost:', rh,
+      'top scores:', semanticHits.slice(0, 3).map(h => h.score.toFixed(3)));
   }
 
   if (semanticHits.length > 0) {
