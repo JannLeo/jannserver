@@ -234,9 +234,11 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
             {quickCreateItems.map(item => (
               <Link key={item.href} href={item.href}
-                className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition text-center">
-                <span className="text-2xl">{item.icon}</span>
-                <span className="text-xs text-slate-600">{item.label}</span>
+                className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/50 hover:shadow-sm transition-all duration-200 text-center group">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-200">
+                  {item.icon}
+                </div>
+                <span className="text-xs text-slate-600 font-medium">{item.label}</span>
               </Link>
             ))}
           </div>
