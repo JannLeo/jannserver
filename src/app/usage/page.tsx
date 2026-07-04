@@ -60,7 +60,7 @@ type RangeOption = 'today' | '7d' | '30d';
 
 function formatCost(n: number | null | undefined): string {
   if (n == null) return '-';
-  return `$${n.toFixed(4)}`;
+  return `¥${n.toFixed(2)}`;
 }
 
 function formatTokens(n: number | null | undefined): string {
@@ -160,7 +160,7 @@ export default function UsagePage() {
         {/* Summary Cards */}
         {summary && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-            <SummaryCard label="当前余额" value={summary.balance != null ? `$${summary.balance.toFixed(2)}` : '-'} accent="blue" />
+            <SummaryCard label="当前余额" value={summary.balance != null ? `¥${summary.balance.toLocaleString()}` : '-'} accent="blue" />
             <SummaryCard label="今日消耗" value={formatCost(summary.usedToday)} accent="red" />
             <SummaryCard label="7 日消耗" value={formatCost(summary.used7d)} accent="orange" />
             <SummaryCard label="30 日消耗" value={formatCost(summary.used30d)} accent="amber" />
@@ -187,7 +187,7 @@ export default function UsagePage() {
                           style={{ width: `${(d.cost / maxDailyCost) * 100}%` }}
                         />
                       </div>
-                      <span className="text-slate-700 w-16 text-right">${d.cost.toFixed(2)}</span>
+                      <span className="text-slate-700 w-16 text-right">¥{d.cost.toFixed(2)}</span>
                       <span className="text-slate-400 w-12 text-right">{d.requests}次</span>
                     </div>
                   ))}
@@ -210,7 +210,7 @@ export default function UsagePage() {
                           style={{ width: `${(m.cost / maxModelCost) * 100}%` }}
                         />
                       </div>
-                      <span className="text-slate-700 w-16 text-right">${m.cost.toFixed(2)}</span>
+                      <span className="text-slate-700 w-16 text-right">¥{m.cost.toFixed(2)}</span>
                       <span className="text-slate-400 w-12 text-right">{m.requests}次</span>
                     </div>
                   ))}
@@ -233,7 +233,7 @@ export default function UsagePage() {
                           style={{ width: `${(c.cost / maxChannelCost) * 100}%` }}
                         />
                       </div>
-                      <span className="text-slate-700 w-16 text-right">${c.cost.toFixed(2)}</span>
+                      <span className="text-slate-700 w-16 text-right">¥{c.cost.toFixed(2)}</span>
                       <span className="text-slate-400 w-12 text-right">{c.requests}次</span>
                     </div>
                   ))}
@@ -253,7 +253,7 @@ export default function UsagePage() {
                       <span className="font-mono text-slate-400 w-32 flex-shrink-0 truncate" title={log.time}>{log.time}</span>
                       <span className="font-medium text-slate-700 truncate flex-1" title={log.model}>{log.model || '-'}</span>
                       <span className="text-slate-500 w-16 text-right">{formatTokens(log.totalTokens)}</span>
-                      <span className="text-slate-700 w-14 text-right">${log.cost.toFixed(3)}</span>
+                      <span className="text-slate-700 w-14 text-right">¥{log.cost.toFixed(3)}</span>
                     </div>
                   ))}
                 </div>

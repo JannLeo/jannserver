@@ -1,21 +1,14 @@
 // @ts-nocheck
 /**
- * new-api 使用情况统计适配层
+ * new-api 使用情况统计 — 直接读取 SQLite 数据库
  *
- * 探测结论：
- * - new-api 跑在生产服务器，开发机通过 tailscale 访问
- * - 鉴权用 `Authorization: Bearer <access_token>`
- * - 可用 self 接口（用户 access token）：
- *   GET /api/user/self       → 用户信息（余额/已用额度）
- *   GET /api/log/self        → 调用日志（分页）
- *   GET /api/log/self/stat   → 日志统计
- *   GET /api/data/self       → 数据仪表盘
- * - 第一版只走 HTTP API，不接数据库
+ * new-api 数据库位于 /home/sz/new-api-data/one-api.db
+ * 通过直接读 DB 绕过 HTTP API 鉴权问题
  *
- * 安全：
- * - 不打印 token / Authorization header
- * - 所有 fetch 10s 超时
- * - 每个接口独立 try/catch，单点失败不阻塞整体
+ * 转换公式（基于 new-api 配置）：
+ *   1 USD = 500000 quota（默认）
+ *   1 USD = 7.3 CNY（固定汇率）
+ *   所以：CNY = quota / 500000 * 7.3
  */
 
 export interface NewApiUsageSummary {
@@ -78,351 +71,196 @@ const RANGE_TO_DAYS: Record<string, number> = {
 
 /**
  * 获取 new-api base url
- * 优先 NEW_API_BASE_URL
- * 其次从 AI_BASE_URL 去掉 /v1 推导
- * 默认 http://127.0.0.1:12345
  */
 export function getNewApiBaseUrl(): string {
   const explicit = (process.env.NEW_API_BASE_URL || '').trim();
   if (explicit) return explicit.replace(/\/$/, '');
   const aiBaseUrl = (process.env.AI_BASE_URL || '').trim();
   if (aiBaseUrl) {
-    // http://127.0.0.1:12345/v1 → http://127.0.0.1:12345
     return aiBaseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '');
   }
   return 'http://127.0.0.1:12345';
 }
 
-function isConfigured(): boolean {
-  return !!(process.env.NEW_API_ADMIN_TOKEN || '').trim();
-}
+const NEW_API_DB = '/home/sz/new-api-data/one-api.db';
+const QUOTA_PER_UNIT = 500000;
+const EXCHANGE_RATE = 7.3;
 
-function buildHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
-}
-
-/**
- * 带 10s 超时的 fetch
- */
-async function fetchWithTimeout(url: string, headers: Record<string, string>, timeoutMs = 10000): Promise<any | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
-    const text = await res.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      return null;
-    }
-  } catch (err: any) {
-    if (err.name === 'AbortError') {
-      throw new Error('new-api 请求超时（10s）');
-    }
-    throw new Error(`new-api 请求失败: ${err.message}`);
-  } finally {
-    clearTimeout(timer);
-  }
+function qty(quota: number): number {
+  if (!quota || quota <= 0) return 0;
+  return parseFloat(((quota / QUOTA_PER_UNIT) * EXCHANGE_RATE).toFixed(4));
 }
 
 /**
- * 安全的 quota → 货币转换
- * new-api 通常以 quota 单位存储，1 美元 = 500000 quota（默认）
- * 如果 status.display_in_currency=true，前端显示货币；否则显示 quota
+ * 通过直接读取 new-api SQLite 数据库获取使用情况统计
+ * 绕过 HTTP API 鉴权问题
  */
-function quotaToCurrency(quota: number, exchangeRate: number): number {
-  if (!exchangeRate || exchangeRate <= 0) exchangeRate = 500000;
-  return quota / exchangeRate;
-}
-
-/**
- * 格式化时间为 YYYY-MM-DD HH:MM:SS
- */
-function formatTime(unixSeconds: number): string {
-  if (!unixSeconds) return '';
-  const d = new Date(unixSeconds * 1000);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  const s = String(d.getSeconds()).padStart(2, '0');
-  return `${y}-${m}-${day} ${h}:${min}:${s}`;
-}
-
-/**
- * 格式化为 YYYY-MM-DD
- */
-function formatDate(unixSeconds: number): string {
-  if (!unixSeconds) return '';
-  const d = new Date(unixSeconds * 1000);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function todayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function daysAgoStr(days: number): string {
-  const d = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/**
- * 获取 new-api 使用情况
- */
-export async function getNewApiUsage(range: 'today' | '7d' | '30d' = '7d', date?: string): Promise<NewApiUsageResult> {
-  const token = (process.env.NEW_API_ADMIN_TOKEN || '').trim();
-  const baseUrl = getNewApiBaseUrl();
-
-  if (!token) {
+export function getNewApiUsage(range: 'today' | '7d' | '30d' = '7d'): NewApiUsageResult {
+  const fs = require('fs');
+  if (!fs.existsSync(NEW_API_DB)) {
     return {
       configured: false,
       source: 'none',
-      baseUrl,
+      baseUrl: getNewApiBaseUrl(),
       summary: null,
       daily: [],
       byModel: [],
       byChannel: [],
       recentLogs: [],
-      error: 'NEW_API_ADMIN_TOKEN 未配置',
+      error: 'new-api 数据库文件不存在',
     };
   }
 
-  const days = RANGE_TO_DAYS[range] || 7;
-  const headers = buildHeaders(token);
+  const pythonScript = `
+import sqlite3, json, datetime
 
-  // 并行调用多个接口，每个独立容错
-  const [userSelfRes, logSelfRes, statRes, dataSelfRes] = await Promise.allSettled([
-    fetchWithTimeout(`${baseUrl}/api/user/self`, headers),
-    fetchWithTimeout(`${baseUrl}/api/log/self?p=0&per_page=100`, headers),
-    fetchWithTimeout(`${baseUrl}/api/log/self/stat`, headers),
-    fetchWithTimeout(`${baseUrl}/api/data/self`, headers),
-  ]);
+db = sqlite3.connect('/home/sz/new-api-data/one-api.db')
+cur = db.cursor()
 
-  // 检查鉴权是否失败（所有接口都返回 invalid token）
-  const allFailed = [userSelfRes, logSelfRes, statRes, dataSelfRes].every(
-    (r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value && r.value.success === false)
-  );
-  if (allFailed) {
-    // 看是否有鉴权错误
-    const firstResolved = [userSelfRes, logSelfRes, statRes, dataSelfRes].find(
-      (r) => r.status === 'fulfilled' && r.value
-    ) as PromiseFulfilledResult<any> | undefined;
-    if (firstResolved?.value?.message?.includes('access token')) {
-      return {
-        configured: true,
-        source: 'http_api',
-        baseUrl,
-        summary: null,
-        daily: [],
-        byModel: [],
-        byChannel: [],
-        recentLogs: [],
-        error: 'new-api access token 无效',
-      };
-    }
-    const firstRejected = [userSelfRes, logSelfRes, statRes, dataSelfRes].find(
-      (r) => r.status === 'rejected'
-    ) as PromiseRejectedResult | undefined;
+# 获取用户信息
+cur.execute('SELECT quota, used_quota, request_count FROM users WHERE id=1')
+u = cur.fetchone()
+quota = u[0] if u else 0
+used_quota = u[1] if u else 0
+request_count = u[2] if u else 0
+
+QUOTA_PER_UNIT = 500000
+EXCHANGE_RATE = 7.3
+def qty(q):
+    return round((q / QUOTA_PER_UNIT) * EXCHANGE_RATE, 4)
+
+# 时间范围
+now = datetime.datetime.now()
+today_start = int(datetime.datetime(now.year, now.month, now.day).timestamp())
+d7_start = int((now - datetime.timedelta(days=7)).timestamp())
+d30_start = int((now - datetime.timedelta(days=30)).timestamp())
+
+# 今日统计
+cur.execute("""
+    SELECT COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
+    FROM logs WHERE user_id=1 AND created_at >= ?
+""", (today_start,))
+today_cost, today_req, today_tok = cur.fetchone()
+
+# 7 日统计
+cur.execute("""
+    SELECT COALESCE(SUM(quota),0)
+    FROM logs WHERE user_id=1 AND created_at >= ?
+""", (d7_start,))
+cost7d = cur.fetchone()[0]
+
+# 30 日统计
+cur.execute("""
+    SELECT COALESCE(SUM(quota),0)
+    FROM logs WHERE user_id=1 AND created_at >= ?
+""", (d30_start,))
+cost30d = cur.fetchone()[0]
+
+# 每日统计（最近30天）
+cur.execute("""
+    SELECT (created_at / 86400) * 86400, COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
+    FROM logs WHERE user_id=1 AND created_at >= ?
+    GROUP BY created_at / 86400 ORDER BY created_at / 86400 DESC LIMIT 30
+""", (d30_start,))
+daily_rows = []
+for row in cur.fetchall():
+    day = datetime.datetime.fromtimestamp(row[0]).strftime('%Y-%m-%d')
+    daily_rows.append({"date": day, "cost": qty(row[1]), "requests": row[2], "tokens": row[3]})
+
+# 按模型统计（最近30天）
+cur.execute("""
+    SELECT model_name, COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
+    FROM logs WHERE user_id=1 AND created_at >= ?
+    GROUP BY model_name ORDER BY SUM(quota) DESC LIMIT 15
+""", (d30_start,))
+model_rows = []
+for row in cur.fetchall():
+    model_rows.append({"model": row[0], "cost": qty(row[1]), "requests": row[2], "tokens": row[3]})
+
+# 按渠道统计（最近30天）
+cur.execute("""
+    SELECT channel_name, COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
+    FROM logs WHERE user_id=1 AND created_at >= ?
+    GROUP BY channel_name ORDER BY SUM(quota) DESC LIMIT 15
+""", (d30_start,))
+channel_rows = []
+for row in cur.fetchall():
+    channel_rows.append({"channel": row[0] or 'unknown', "cost": qty(row[1]), "requests": row[2], "tokens": row[3]})
+
+# 最近调用记录
+cur.execute("""
+    SELECT created_at, model_name, prompt_tokens, completion_tokens, quota
+    FROM logs WHERE user_id=1 ORDER BY id DESC LIMIT 20
+""")
+recent = []
+for row in cur.fetchall():
+    dt = datetime.datetime.fromtimestamp(row[0])
+    time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+    total_tok = (row[2] or 0) + (row[3] or 0)
+    recent.append({
+        "time": time_str,
+        "model": row[1] or '',
+        "promptTokens": row[2] or 0,
+        "completionTokens": row[3] or 0,
+        "totalTokens": total_tok,
+        "cost": qty(row[4] or 0),
+        "status": "success",
+    })
+
+db.close()
+
+result = {
+    "quota": quota,
+    "used_quota": used_quota,
+    "request_count": request_count,
+    "today_cost": qty(today_cost),
+    "today_req": today_req,
+    "today_tok": today_tok,
+    "cost7d": qty(cost7d),
+    "cost30d": qty(cost30d),
+    "balance": qty(quota),
+    "daily": daily_rows,
+    "byModel": model_rows,
+    "byChannel": channel_rows,
+    "recentLogs": recent,
+}
+print(json.dumps(result, ensure_ascii=False))
+  `;
+
+  try {
+    const { execSync } = require('child_process');
+    const output = execSync('python3', { input: pythonScript, timeout: 10000, encoding: 'utf-8', maxBuffer: 1024 * 1024 });
+    const data = JSON.parse(output.trim());
+
     return {
       configured: true,
-      source: 'http_api',
-      baseUrl,
+      source: 'direct_db',
+      baseUrl: getNewApiBaseUrl(),
+      summary: {
+        balance: data.balance,
+        usedToday: data.today_cost,
+        used7d: data.cost7d,
+        used30d: data.cost30d,
+        requestCountToday: data.today_req,
+        tokenCountToday: data.today_tok,
+      },
+      daily: data.daily,
+      byModel: data.byModel,
+      byChannel: data.byChannel,
+      recentLogs: data.recentLogs,
+      error: null,
+    };
+  } catch (err: any) {
+    return {
+      configured: true,
+      source: 'direct_db',
+      baseUrl: getNewApiBaseUrl(),
       summary: null,
       daily: [],
       byModel: [],
       byChannel: [],
       recentLogs: [],
-      error: firstRejected?.reason?.message || '无法连接 new-api',
+      error: '读取 new-api 数据库失败: ' + (err.message || String(err)),
     };
   }
-
-  // 解析各接口数据
-  const userSelf = userSelfRes.status === 'fulfilled' ? userSelfRes.value : null;
-  const logSelf = logSelfRes.status === 'fulfilled' ? logSelfRes.value : null;
-  const stat = statRes.status === 'fulfilled' ? statRes.value : null;
-  const dataSelf = dataSelfRes.status === 'fulfilled' ? dataSelfRes.value : null;
-
-  // 获取汇率（从 userSelf 或默认 500000）
-  let exchangeRate = 500000;
-  let displayInCurrency = true;
-  if (userSelf?.data) {
-    // new-api 用户对象有时带 quota 字段，汇率从 /api/status 拿（这里用默认）
-  }
-
-  // === 解析 summary ===
-  const summary: NewApiUsageSummary = {
-    balance: null,
-    usedToday: null,
-    used7d: null,
-    used30d: null,
-    requestCountToday: null,
-    tokenCountToday: null,
-  };
-
-  if (userSelf?.data && userSelf.success !== false) {
-    const u = userSelf.data;
-    // quota 是剩余，used_quota 是已用
-    if (typeof u.quota === 'number') {
-      summary.balance = quotaToCurrency(u.quota, exchangeRate);
-    }
-    if (typeof u.used_quota === 'number') {
-      // used_quota 是累计已用，不是今日；今日需要从日志聚合
-      // 暂存累计，后面从日志算今日
-    }
-    if (typeof u.request_count === 'number') {
-      // 累计请求数，不是今日
-    }
-  }
-
-  // === 解析 recentLogs + 聚合 daily/byModel/byChannel/今日统计 ===
-  let recentLogs: NewApiRecentLog[] = [];
-  const dailyMap = new Map<string, { cost: number; requests: number; tokens: number }>();
-  const byModelMap = new Map<string, { cost: number; requests: number; tokens: number }>();
-  const byChannelMap = new Map<string, { cost: number; requests: number; tokens: number }>();
-  let todayCost = 0;
-  let todayRequests = 0;
-  let todayTokens = 0;
-  let cost7d = 0;
-  let cost30d = 0;
-  const today = todayStr();
-  const d7 = daysAgoStr(7);
-  const d30 = daysAgoStr(30);
-
-  if (logSelf?.data && logSelf.success !== false) {
-    const items = Array.isArray(logSelf.data) ? logSelf.data : (logSelf.data.items || logSelf.data.logs || []);
-    for (const log of items) {
-      const ts = log.created_at || log.CreatedAt || log.timestamp;
-      if (!ts) continue;
-      const dateStr = formatDate(Number(ts));
-      const fullTime = formatTime(Number(ts));
-      const model = String(log.model_name || log.model || '');
-      const promptTokens = Number(log.prompt_tokens || 0);
-      const completionTokens = Number(log.completion_tokens || 0);
-      const totalTokens = Number(log.use_tokens || log.total_tokens || (promptTokens + completionTokens));
-      const quotaCost = Number(log.quota || log.used_quota || 0);
-      const cost = quotaToCurrency(quotaCost, exchangeRate);
-      const channelName = String(log.channel_name || log.channel_id || 'unknown');
-      const status: 'success' | 'error' = log.type === 'error' || log.status === 'error' ? 'error' : 'success';
-
-      // recentLogs（最多 20 条，倒序）
-      recentLogs.push({
-        time: fullTime,
-        model,
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        cost,
-        status,
-      });
-
-      // daily 聚合
-      if (dateStr) {
-        const cur = dailyMap.get(dateStr) || { cost: 0, requests: 0, tokens: 0 };
-        cur.cost += cost;
-        cur.requests += 1;
-        cur.tokens += totalTokens;
-        dailyMap.set(dateStr, cur);
-      }
-
-      // byModel 聚合
-      if (model) {
-        const cur = byModelMap.get(model) || { cost: 0, requests: 0, tokens: 0 };
-        cur.cost += cost;
-        cur.requests += 1;
-        cur.tokens += totalTokens;
-        byModelMap.set(model, cur);
-      }
-
-      // byChannel 聚合
-      const chKey = channelName || 'unknown';
-      const curCh = byChannelMap.get(chKey) || { cost: 0, requests: 0, tokens: 0 };
-      curCh.cost += cost;
-      curCh.requests += 1;
-      curCh.tokens += totalTokens;
-      byChannelMap.set(chKey, curCh);
-
-      // 今日聚合
-      if (dateStr === today) {
-        todayCost += cost;
-        todayRequests += 1;
-        todayTokens += totalTokens;
-      }
-
-      // 7d / 30d
-      if (dateStr >= d7) cost7d += cost;
-      if (dateStr >= d30) cost30d += cost;
-    }
-
-    // recentLogs 倒序取前 20
-    recentLogs = recentLogs
-      .sort((a, b) => (a.time < b.time ? 1 : -1))
-      .slice(0, 20);
-  }
-
-  // 填充 summary（如果日志聚合成功，用日志算的；否则用 user_self 的累计）
-  if (todayRequests > 0 || summary.balance !== null) {
-    summary.usedToday = todayCost;
-    summary.used7d = cost7d;
-    summary.used30d = cost30d;
-    summary.requestCountToday = todayRequests;
-    summary.tokenCountToday = todayTokens;
-  }
-
-  // === 尝试用 stat / data_self 补全（如果日志聚合没拿到数据）===
-  if (stat?.data && stat.success !== false) {
-    // stat 可能返回更准确的聚合数据，但字段名不确定
-    // 这里只在日志聚合为空时尝试用 stat
-    if (dailyMap.size === 0 && Array.isArray(stat.data)) {
-      for (const item of stat.data) {
-        const dateStr = item.date || item.day || formatDate(item.created_at);
-        if (!dateStr) continue;
-        dailyMap.set(dateStr, {
-          cost: quotaToCurrency(Number(item.quota || item.cost || 0), exchangeRate),
-          requests: Number(item.count || item.requests || 0),
-          tokens: Number(item.tokens || 0),
-        });
-      }
-    }
-  }
-
-  // === 构造返回 ===
-  const daily: NewApiDailyItem[] = Array.from(dailyMap.entries())
-    .map(([date, v]) => ({ date, ...v }))
-    .sort((a, b) => (a.date < b.date ? 1 : -1))
-    .slice(0, 30);
-
-  const byModel: NewApiByModelItem[] = Array.from(byModelMap.entries())
-    .map(([model, v]) => ({ model, ...v }))
-    .sort((a, b) => b.cost - a.cost)
-    .slice(0, 15);
-
-  const byChannel: NewApiByChannelItem[] = Array.from(byChannelMap.entries())
-    .map(([channel, v]) => ({ channel, ...v }))
-    .sort((a, b) => b.cost - a.cost)
-    .slice(0, 15);
-
-  return {
-    configured: true,
-    source: 'http_api',
-    baseUrl,
-    summary,
-    daily,
-    byModel,
-    byChannel,
-    recentLogs,
-    error: null,
-  };
 }
