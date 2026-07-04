@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/index';
 import { novelChapters } from '@/lib/db/schema';

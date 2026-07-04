@@ -329,6 +329,50 @@ CREATE TABLE IF NOT EXISTS brain_user_info (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS novels (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '未命名小说',
+  author TEXT NOT NULL DEFAULT '',
+  genre TEXT NOT NULL DEFAULT '',
+  synopsis TEXT NOT NULL DEFAULT '',
+  world_setting TEXT NOT NULL DEFAULT '',
+  genre_setting TEXT NOT NULL DEFAULT '',
+  character_settings TEXT NOT NULL DEFAULT '',
+  current_phase TEXT NOT NULL DEFAULT 'setup',
+  current_chapter INTEGER NOT NULL DEFAULT 0,
+  total_words INTEGER NOT NULL DEFAULT 0,
+  word_count_target INTEGER NOT NULL DEFAULT 300000,
+  status TEXT NOT NULL DEFAULT 'writing',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS novel_chapters (
+  id TEXT PRIMARY KEY,
+  novel_id TEXT NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+  volume_number INTEGER NOT NULL DEFAULT 1,
+  chapter_number INTEGER NOT NULL DEFAULT 1,
+  title TEXT NOT NULL DEFAULT '',
+  outline TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  word_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'outline',
+  "order" INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS novel_volumes (
+  id TEXT PRIMARY KEY,
+  novel_id TEXT NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+  volume_number INTEGER NOT NULL DEFAULT 1,
+  title TEXT NOT NULL DEFAULT '',
+  synopsis TEXT NOT NULL DEFAULT '',
+  outline TEXT NOT NULL DEFAULT '',
+  word_count_target INTEGER NOT NULL DEFAULT 50000,
+  status TEXT NOT NULL DEFAULT 'planning',
+  "order" INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 for (const stmt of createSQL.trim().split(";").filter(s => s.trim())) {
   if (stmt.trim()) sqlite.exec(stmt.trim() + ";");
@@ -371,6 +415,13 @@ const indexes = [
   // brain indexes
   `CREATE INDEX IF NOT EXISTS idx_brain_alphas_status ON brain_alphas(status);`,
   `CREATE INDEX IF NOT EXISTS idx_brain_alphas_synced ON brain_alphas(synced_at);`,
+  // novel indexes
+  `CREATE INDEX IF NOT EXISTS idx_novels_updated ON novels(updated_at);`,
+  `CREATE INDEX IF NOT EXISTS idx_novel_chapters_novel ON novel_chapters(novel_id);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_novel_chapters_number ON novel_chapters(novel_id, chapter_number);`,
+  `CREATE INDEX IF NOT EXISTS idx_novel_chapters_volume ON novel_chapters(novel_id, volume_number, chapter_number);`,
+  `CREATE INDEX IF NOT EXISTS idx_novel_volumes_novel ON novel_volumes(novel_id);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_novel_volumes_number ON novel_volumes(novel_id, volume_number);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);

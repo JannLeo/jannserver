@@ -1,7 +1,6 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/index';
-import { novels, novelChapters, novelVolumes } from '@/lib/db/schema';
+import { novels } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
