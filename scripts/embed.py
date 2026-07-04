@@ -21,15 +21,20 @@ for i in range(DIM):
         v.append(val / 2**32 * 2 - 1)  # normalize to [-1, 1]
     _BASIS.append(v)
 
+def _sanitize(text: str) -> str:
+    """Remove unpaired surrogates which cause encode() to fail."""
+    return text.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='ignore')
+
 def _ngram_hash(text: str, n: int) -> int:
-    return int(hashlib.md5(text.encode()).hexdigest()[:8], 16)
+    clean = _sanitize(text)
+    return int(hashlib.md5(clean.encode()).hexdigest()[:8], 16)
 
 def _embed_one(text: str) -> list:
     """Generate 384-dim embedding vector using character n-gram hashing."""
     if not text:
         return [0.0] * DIM
     
-    text = text.lower()
+    text = _sanitize(text.lower())
     # Count all n-grams
     ngram_counts = {}
     total = 0

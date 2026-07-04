@@ -56,26 +56,22 @@ async function fetchConceptDocFallback(repoName: string, question: string): Prom
   if (words.length === 0) return [];
   const lowerWords = words.map(w => w.toLowerCase());
 
-  // 构造 LIKE 条件（任一关键词命中即可）
-  const likePatterns = lowerWords.map(w => `%${w}%`);
-  if (likePatterns.length === 0) return [];
-
   try {
     initDb();
     const rawSqlite: any = sqlite;
 
-    // 遍历该 repo 的所有 wq_obsidian 路径文档，精确打分后取 top 3
+    // 遍历该 repo 的所有 obsidian_note 文档
     const allConceptDocs: any[] = [];
-    for (const cp of [`${repoName}/wq_obsidian/%`, `${repoName}/note/%`, `${repoName}/forum/%`]) {
-      const rows = rawSqlite.prepare(
-        `SELECT doc_id, content FROM embeddings
-         WHERE doc_type = 'obsidian_note'
-           AND doc_id LIKE ?
-         ORDER BY doc_id`
-      ).all(`obsidian:${cp}`);
-      for (const r of rows as any[]) {
-        allConceptDocs.push(r);
-      }
+    // doc_id 格式为 obsidian:<repo_name>/<filepath>.md，直接匹配仓库前缀
+    const pattern = `obsidian:${repoName}/%`;
+    const rows = rawSqlite.prepare(
+      `SELECT doc_id, content FROM embeddings
+       WHERE doc_type = 'obsidian_note'
+         AND doc_id LIKE ?
+       ORDER BY doc_id`
+    ).all(pattern);
+    for (const r of rows as any[]) {
+      allConceptDocs.push(r);
     }
 
     // 对所有概念文档打分（关键词匹配 + doc_id 命中额外加权）
@@ -658,7 +654,7 @@ async function buildSourcesFromSemanticHits(hits: SemanticHit[]): Promise<any[]>
         docId: h.docId,
         title: relPath,
         repoName: 'obsidian',
-        url: `/obsidian`,
+        url: `/repos`,
         excerpt: h.content.slice(0, 200),
         score: h.score,
       });
