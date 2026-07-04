@@ -28,8 +28,13 @@ export default function DailyPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    await fetch(`/api/daily/${date}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
-    setSaving(false);
+    try {
+      await fetch(`/api/daily/${date}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    } catch {
+      alert('保存失败，请重试');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleGenerate = async () => {
@@ -127,7 +132,7 @@ export default function DailyPage() {
 
         {/* 编辑器 */}
         <textarea
-          className="w-full h-[65vh] app-input rounded-xl p-4 font-mono text-sm resize-none focus:outline-none bg-white"
+          className="w-full h-[65vh] app-input rounded-xl p-4 font-mono text-sm resize-none focus:outline-none"
           value={content}
           onChange={e => setContent(e.target.value)}
           placeholder={"今天做什么？\n\n可以手动输入，也可以点上面的「🤖 AI 生成日计划」让 AI 基于你的任务、备忘录和 GitHub 提交智能生成。"}

@@ -27,13 +27,17 @@ export default function NoteDetailPage() {
   }, [slug]);
 
   const handleSave = async () => {
-    await fetch(`/api/notes/${slug}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, content }),
-    });
-    setEditing(false);
-    setNote({ ...note, title, content });
+    try {
+      await fetch(`/api/notes/${slug}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content }),
+      });
+      setEditing(false);
+      setNote({ ...note, title, content });
+    } catch {
+      alert('保存失败，请重试');
+    }
   };
 
   if (loading) return <div className="p-6 text-slate-400">加载中...</div>;

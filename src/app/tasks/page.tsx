@@ -107,7 +107,7 @@ export default function TasksPage() {
           ))}
         </div>
         <div className="flex gap-2 mb-6">
-          <input className="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none"
+          <input className="flex-1 app-input rounded-lg px-4 py-2 text-sm"
             placeholder="添加新任务..." value={newTitle} onChange={e => setNewTitle(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleCreate()} />
           <button onClick={handleCreate} className="app-button-primary px-4 py-2 rounded-lg text-sm">添加</button>
@@ -151,7 +151,7 @@ export default function TasksPage() {
             const projectName = getProjectName(t.projectId);
             const isDelegating = delegatingId === t.id;
             return (
-            <div key={t.id} className="app-card px-4 py-3 border border-slate-100 hover:border-teal-500/30 hover:shadow-sm transition-all duration-200 flex items-center gap-3 group">
+            <div key={t.id} className="app-card px-4 py-3 hover:border-teal-500/30 hover:shadow-sm transition-all duration-200 flex items-center gap-3 group">
               <button onClick={() => handleStatus(t.id, t.status)}
                 className={`w-5 h-5 rounded border-2 flex items-center justify-center text-xs transition-all ${t.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-teal-500/60'}`}>
                 {t.status === 'done' && '✓'}

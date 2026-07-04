@@ -1,6 +1,5 @@
 'use client';
 import { useState, useCallback } from 'react';
-import Link from 'next/link';
 import NavBar from '@/components/NavBar';
 
 interface Source {
@@ -103,7 +102,7 @@ export default function AskPage() {
             <select
               value={repoName}
               onChange={e => setRepoName(e.target.value)}
-              className="flex-1 px-3 py-2 app-input rounded-lg text-sm bg-white focus:outline-none"
+              className="flex-1 app-input rounded-lg px-3 py-2 text-sm"
               disabled={loading}
             >
               <option value="全部仓库">全部仓库</option>
@@ -123,13 +122,13 @@ export default function AskPage() {
               onChange={e => setQuestion(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="输入问题，例如：WorldQuant fitness 是什么？"
-              className="flex-1 px-4 py-2.5 app-input rounded-lg text-sm focus:outline-none"
+              className="flex-1 app-input rounded-lg px-4 py-2.5 text-sm"
               disabled={loading}
             />
             <button
               onClick={handleSubmit}
               disabled={loading || !question.trim()}
-              className="px-5 py-2.5 app-button-primary rounded-lg text-sm font-medium  disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 app-button-primary rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? '查询中...' : '提问'}
             </button>
