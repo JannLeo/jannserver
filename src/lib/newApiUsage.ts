@@ -111,8 +111,13 @@ export function getNewApiUsage(range: 'today' | '7d' | '30d' = '7d'): NewApiUsag
     };
   }
 
+  const rangeArg = range === 'today' ? 1 : range === '7d' ? 7 : 30;
   const pythonScript = `
 import sqlite3, json, datetime
+
+RANGE = ${rangeArg}
+QUOTA_PER_UNIT = 500000
+EXCHANGE_RATE = 7.3
 
 db = sqlite3.connect('/home/sz/new-api-data/one-api.db')
 cur = db.cursor()
@@ -124,18 +129,28 @@ quota = u[0] if u else 0
 used_quota = u[1] if u else 0
 request_count = u[2] if u else 0
 
-QUOTA_PER_UNIT = 500000
-EXCHANGE_RATE = 7.3
+def fmt(n):
+    if n >= 1_000_000_000:
+        return f"¥{n/1_000_000_000:.2f}亿"
+    elif n >= 1_000_000:
+        return f"¥{n/1_000_000:.2f}万"
+    elif n >= 1_000:
+        return f"¥{n/1_000:.2f}K"
+    else:
+        return f"¥{n:.2f}"
+
 def qty(q):
     return round((q / QUOTA_PER_UNIT) * EXCHANGE_RATE, 4)
+
+range_days = {'today': 1, '7d': 7, '30d': 30}.get(RANGE, 7)
 
 # 时间范围
 now = datetime.datetime.now()
 today_start = int(datetime.datetime(now.year, now.month, now.day).timestamp())
-d7_start = int((now - datetime.timedelta(days=7)).timestamp())
+d_start = int((now - datetime.timedelta(days=range_days)).timestamp())
 d30_start = int((now - datetime.timedelta(days=30)).timestamp())
 
-# 今日统计
+# 今日统计（永远从今天0点）
 cur.execute("""
     SELECT COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
     FROM logs WHERE user_id=1 AND created_at >= ?
@@ -146,7 +161,7 @@ today_cost, today_req, today_tok = cur.fetchone()
 cur.execute("""
     SELECT COALESCE(SUM(quota),0)
     FROM logs WHERE user_id=1 AND created_at >= ?
-""", (d7_start,))
+""", (d_start,))
 cost7d = cur.fetchone()[0]
 
 # 30 日统计
@@ -156,36 +171,44 @@ cur.execute("""
 """, (d30_start,))
 cost30d = cur.fetchone()[0]
 
-# 每日统计（最近30天）
+# 选中的 range 期间的消耗（用于 byModel/byChannel/daily）
+cur.execute("""
+    SELECT COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
+    FROM logs WHERE user_id=1 AND created_at >= ?
+""", (d_start,))
+range_cost, range_req, range_tok = cur.fetchone()
+
+# 每日统计（按 range 筛选）
 cur.execute("""
     SELECT (created_at / 86400) * 86400, COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
     FROM logs WHERE user_id=1 AND created_at >= ?
     GROUP BY created_at / 86400 ORDER BY created_at / 86400 DESC LIMIT 30
-""", (d30_start,))
+""", (d_start,))
 daily_rows = []
 for row in cur.fetchall():
     day = datetime.datetime.fromtimestamp(row[0]).strftime('%Y-%m-%d')
     daily_rows.append({"date": day, "cost": qty(row[1]), "requests": row[2], "tokens": row[3]})
 
-# 按模型统计（最近30天）
+# 按模型统计（按 range 筛选）
 cur.execute("""
     SELECT model_name, COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
     FROM logs WHERE user_id=1 AND created_at >= ?
     GROUP BY model_name ORDER BY SUM(quota) DESC LIMIT 15
-""", (d30_start,))
+""", (d_start,))
 model_rows = []
 for row in cur.fetchall():
     model_rows.append({"model": row[0], "cost": qty(row[1]), "requests": row[2], "tokens": row[3]})
 
-# 按渠道统计（最近30天）
+# 按渠道统计（按 range 筛选，JOIN channels 获取名称）
 cur.execute("""
-    SELECT channel_name, COALESCE(SUM(quota),0), COUNT(*), COALESCE(SUM(prompt_tokens + completion_tokens),0)
-    FROM logs WHERE user_id=1 AND created_at >= ?
-    GROUP BY channel_name ORDER BY SUM(quota) DESC LIMIT 15
-""", (d30_start,))
+    SELECT COALESCE(c.name, '新API直连'), COALESCE(SUM(l.quota),0), COUNT(*), COALESCE(SUM(l.prompt_tokens + l.completion_tokens),0)
+    FROM logs l LEFT JOIN channels c ON l.channel_id = c.id
+    WHERE l.user_id=1 AND l.created_at >= ?
+    GROUP BY l.channel_id ORDER BY SUM(l.quota) DESC LIMIT 15
+""", (d_start,))
 channel_rows = []
 for row in cur.fetchall():
-    channel_rows.append({"channel": row[0] or 'unknown', "cost": qty(row[1]), "requests": row[2], "tokens": row[3]})
+    channel_rows.append({"channel": row[0] or '新API直连', "cost": qty(row[1]), "requests": row[2], "tokens": row[3]})
 
 # 最近调用记录
 cur.execute("""
