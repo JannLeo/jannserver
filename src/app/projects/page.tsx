@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import NavBar from '@/components/NavBar';
 
 export default function ProjectsPage() {
