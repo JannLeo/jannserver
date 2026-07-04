@@ -21,6 +21,8 @@ module.exports = {
         BRAIN_API_URL: env.BRAIN_API_URL || 'https://api.worldquantbrain.com',
         BRAIN_CREDENTIAL_EMAIL: env.BRAIN_CREDENTIAL_EMAIL || '',
         BRAIN_CREDENTIAL_PASSWORD: env.BRAIN_CREDENTIAL_PASSWORD || '',
+        AITO_EARN_RELAY_URL: env.AITO_EARN_RELAY_URL || 'http://127.0.0.1:8088/api',
+        AITO_EARN_API_KEY: env.AITO_EARN_API_KEY || '',
         PATH: env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       },
       autorestart: true,
