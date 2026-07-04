@@ -12,13 +12,24 @@ export default function NewNotePage() {
   const handleSave = async () => {
     if (!title.trim()) return alert('标题必填');
     setSaving(true);
-    const res = await fetch('/api/notes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, content }),
-    });
-    const data = await res.json();
-    router.push(`/notes/${data.slug}`);
+    try {
+      const res = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || '保存失败');
+        return;
+      }
+      const data = await res.json();
+      router.push(`/notes/${data.slug}`);
+    } catch (e) {
+      alert('网络错误，请重试');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

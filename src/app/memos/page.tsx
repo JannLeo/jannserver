@@ -3,6 +3,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import NavBar from '@/components/NavBar';
+import { format } from 'date-fns';
+
+function formatDate(iso: string): string {
+  try { return format(new Date(iso), 'MM-dd HH:mm'); } catch { return iso; }
+}
 
 export default function MemosPage() {
   const [memos, setMemos] = useState<any[]>([]);
@@ -50,9 +55,9 @@ export default function MemosPage() {
           {memos.length === 0 && <p className="text-slate-400 text-center py-10">暂无备忘录</p>}
           {memos.map(m => (
             <div key={m.id} className="bg-white rounded-xl p-4 border border-slate-100">
-              <p className="text-sm text-slate-700 whitespace-pre-wrap line-clamp-4">{m.excerpt || '(空)'}</p>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap line-clamp-4">{m.excerpt || m.content || '(空)'}</p>
               <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-slate-400">{m.createdAt}</span>
+                <span className="text-xs text-slate-400">{formatDate(m.createdAt)}</span>
                 <button onClick={() => handleDelete(m.id)} className="text-red-400 hover:text-red-600 text-xs">删除</button>
               </div>
             </div>

@@ -3,6 +3,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import NavBar from '@/components/NavBar';
+import { format } from 'date-fns';
+
+function formatDate(iso: string): string {
+  try { return format(new Date(iso), 'MM-dd HH:mm'); } catch { return iso; }
+}
 
 export default function NotesPage() {
   const [notes, setNotes] = useState<any[]>([]);
@@ -34,7 +39,7 @@ export default function NotesPage() {
                 <div>
                   <Link href={`/notes/${n.slug}`} className="text-blue-600 hover:underline font-medium">{n.title}</Link>
                   {n.excerpt && <p className="text-sm text-slate-500 mt-1 line-clamp-2">{n.excerpt}</p>}
-                  <span className="text-xs text-slate-400 mt-1 block">{n.createdAt}</span>
+                  <span className="text-xs text-slate-400 mt-1 block">{formatDate(n.createdAt)}</span>
                 </div>
                 <button onClick={() => handleDelete(n.slug)} className="text-red-400 hover:text-red-600 text-sm">删除</button>
               </div>

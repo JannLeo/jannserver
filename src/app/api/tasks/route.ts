@@ -10,10 +10,16 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status');
   const projectId = searchParams.get('project');
+  const date = searchParams.get('date');
+  const today = new Date().toISOString().slice(0, 10);
 
   let results = db.select().from(tasks).all();
   if (status) results = results.filter(r => r.status === status);
   if (projectId) results = results.filter(r => r.projectId === projectId);
+  if (date === 'today') results = results.filter(r => {
+    if (!r.scheduledDate) return r.status !== 'done';
+    return r.scheduledDate === today;
+  });
 
   // sort by priority then updatedAt
   const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
