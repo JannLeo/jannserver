@@ -9,15 +9,15 @@ interface NavBarProps {
 
 export default function NavBar({ title, backTo = '/dashboard', backLabel = '← 工作台' }: NavBarProps) {
   return (
-    <header className="sticky top-0 z-40 border-b bg-white/95 backdrop-blur shadow-sm h-12 flex items-center px-4 sm:px-6">
+    <header className="sticky top-0 z-40 flex h-14 items-center border-b border-stone-900/10 bg-[#fffaf1]/86 px-4 backdrop-blur-xl sm:px-6">
       <Link
         href={backTo}
-        className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-blue-600 whitespace-nowrap transition-colors flex-shrink-0 mr-3"
+        className="mr-3 flex flex-shrink-0 items-center gap-1.5 rounded-full border border-stone-900/10 bg-white/55 px-3 py-1.5 text-xs font-black text-stone-500 transition hover:border-teal-500/40 hover:text-teal-700"
       >
         <span>{backLabel}</span>
       </Link>
       {title && (
-        <h1 className="text-sm font-semibold text-slate-700 truncate">{title}</h1>
+        <h1 className="truncate text-sm font-black tracking-[-0.02em] text-stone-800">{title}</h1>
       )}
     </header>
   );
