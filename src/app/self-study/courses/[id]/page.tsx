@@ -41,8 +41,12 @@ export default function CourseDetailPage() {
 
   useEffect(() => {
     fetch(`/api/self-study/courses/${courseId}`)
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401) { window.location.href = '/login'; return null; }
+        return r.json();
+      })
       .then(d => {
+        if (!d) return;
         setCourse(d.course);
         setModules(d.modules ?? []);
         setStats(d.stats ?? { total: 0, completed: 0, progress: 0 });

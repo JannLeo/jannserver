@@ -4,16 +4,28 @@ import path from 'path';
 
 const dbPath = path.join(process.cwd(), 'data', 'app.db');
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const db = new Database(dbPath, { readonly: true });
+    const category = req.nextUrl.searchParams.get('category');
 
-    const courses = db.prepare(`
-      SELECT c.*,
+    let sql;
+    let params: string[] = [];
+    if (category && category !== 'all') {
+      sql = `SELECT c.*,
         (SELECT COUNT(*) FROM course_modules cm WHERE cm.course_id = c.id) as module_count
       FROM courses c
-      ORDER BY c."order" ASC
-    `).all();
+      WHERE c.category = ?
+      ORDER BY c."order" ASC`;
+      params = [category];
+    } else {
+      sql = `SELECT c.*,
+        (SELECT COUNT(*) FROM course_modules cm WHERE cm.course_id = c.id) as module_count
+      FROM courses c
+      ORDER BY c."order" ASC`;
+    }
+
+    const courses = db.prepare(sql).all(...params);
 
     db.close();
     return NextResponse.json({ courses });

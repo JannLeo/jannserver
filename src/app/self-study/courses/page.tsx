@@ -8,6 +8,7 @@ const CATEGORIES = [
   { key: 'web', label: 'Web' },
   { key: 'ml', label: '机器学习' },
   { key: 'linux', label: 'Linux' },
+  { key: 'english', label: '英语' },
   { key: 'math', label: '数学' },
 ];
 
@@ -23,10 +24,12 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
     fetch(`/api/self-study/courses?category=${category}`)
-      .then(r => r.json())
-      .then(d => { setCourses(d.courses ?? []); setLoading(false); })
+      .then(r => {
+        if (r.status === 401) { window.location.href = '/login'; return; }
+        return r.json();
+      })
+      .then(d => { if (d) { setCourses(d.courses ?? []); setLoading(false); } })
       .catch(() => setLoading(false));
   }, [category]);
 
