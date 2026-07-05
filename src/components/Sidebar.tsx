@@ -49,6 +49,7 @@ const navItems: [string, string, string, string][] = [
   ['/novel', '✍️', '小说', 'AI 小说创作'],
   ['/news', '📰', '新闻', '全球新闻聚合'],
   ['/trending', '🔥', '趋势', 'GitHub Trending'],
+  ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
 ];
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -390,4 +390,46 @@ export const novelVolumes = sqliteTable("novel_volumes", {
   order: integer("order").notNull().default(0),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Books / Reading ──────────────────────────────────────────────────────────
+export const books = sqliteTable("books", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  author: text("author").notNull().default(""),
+  isbn: text("isbn"),
+  publisher: text("publisher").default(""),
+  coverUrl: text("cover_url").default(""),
+  epubUrl: text("epub_url").default(""),
+  epubPath: text("epub_path").default(""),
+  description: text("description").default(""),
+  totalPages: integer("total_pages"),
+  totalWords: integer("total_words"),
+  language: text("language").default("en"),
+  source: text("source").notNull().default("openlibrary"),
+  wereadId: text("weread_id"),
+  addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const readingProgress = sqliteTable("reading_progress", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  bookId: text("book_id").notNull().references(() => books.id),
+  userId: text("user_id").notNull().default("default"),
+  currentCfi: text("current_cfi").default(""),
+  currentPage: integer("current_page").default(0),
+  progressPercent: real("progress_percent").default(0),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const bookHighlights = sqliteTable("book_highlights", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  bookId: text("book_id").notNull().references(() => books.id),
+  cfiRange: text("cfi_range").default(""),
+  chapterHref: text("chapter_href").default(""),
+  highlightedText: text("highlighted_text").notNull(),
+  note: text("note").default(""),
+  noteId: text("note_id").references((): any => notes.id),
+  color: text("color").notNull().default("yellow"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
