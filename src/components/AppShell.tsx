@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
+import BottomNav from '@/components/BottomNav';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -36,8 +37,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             Ready
           </div>
         </header>
-        <main className="h-[calc(100vh-5.5rem)] overflow-auto sm:h-[calc(100vh-6.5rem)] lg:h-[calc(100vh-7rem)]">{children}</main>
+        <main className="h-[calc(100vh-5.5rem)] overflow-auto pb-14 sm:pb-0 sm:h-[calc(100vh-6.5rem)] lg:h-[calc(100vh-7rem)]">{children}</main>
       </div>
+      <BottomNav />
     </div>
   );
 }
