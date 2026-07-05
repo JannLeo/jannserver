@@ -147,7 +147,7 @@ const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n## |$)/;
 
 function extractSummary(text: string): string | null {
   const match = text.match(AI_SUMMARY_RE);
-  if (match) return match[0].replace(/^## AI 总结\n?/, '').trim().slice(0, 300);
+  if (match) return match[0].replace(/^## AI 总结\n?/, '').trim();
   return null;
 }
 
@@ -410,6 +410,18 @@ const quickCreateItems = [
         </div>
       </section>
 
+      {/* ====== AI 问答（置顶） ====== */}
+      <section className="surface-card rounded-[1.75rem] p-5 sm:p-6 mt-6">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">🤖</span>
+          <div>
+            <p className="section-kicker">Knowledge search</p>
+            <h2 className="text-lg font-black tracking-[-0.03em] text-stone-900">AI 问答</h2>
+          </div>
+        </div>
+        <AskSection todayDate={todayDate} />
+      </section>
+
 {/* ====== 四宫格 ====== */}
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
 
@@ -456,18 +468,7 @@ const quickCreateItems = [
         {/* ── 右列 ── */}
         <div className="space-y-5">
 
-          {/* API 使用量 */}
-          <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="section-kicker">Resource monitor</p>
-                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">用量</h2>
-              </div>
-            </div>
-            <UsageSection summary={usageSummary} />
-          </section>
-
-          {/* AI 日总结 */}
+{/* AI 日总结 */}
           <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -479,15 +480,15 @@ const quickCreateItems = [
             <DailySummarySection todayDate={todayDate} />
           </section>
 
-          {/* AI 问答 */}
+          {/* API 使用量 */}
           <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
-            <div>
-              <p className="section-kicker">Knowledge search</p>
-              <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">AI 问答</h2>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="section-kicker">Resource monitor</p>
+                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">用量</h2>
+              </div>
             </div>
-            <div className="mt-4">
-              <AskSection todayDate={todayDate} />
-            </div>
+            <UsageSection summary={usageSummary} />
           </section>
 
         </div>

@@ -1,5 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { proxyFetchText } from '@/lib/proxy-fetch';
+import { sqlite } from '@/lib/db/index';
 
 export const dynamic = 'force-dynamic';
 
@@ -264,7 +265,30 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const category = url.searchParams.get('category');
   const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '30', 10), 100);
-  const shouldTranslate = url.searchParams.get('translate') !== 'false'; // default true
+  const skipCache = url.searchParams.get('nocache') === '1';
+
+  // Try DB cache first (if fresh within 30 min, and not forced skip)
+  if (!skipCache) {
+    try {
+      const raw: any = sqlite;
+      const rows = raw.prepare(`
+        SELECT id, title, link, source, pub_date, translated_title, cached_at
+        FROM cached_news
+        WHERE cached_at >= datetime('now', '-30 minutes')
+        ORDER BY pub_date DESC, cached_at DESC
+        LIMIT ?
+      `).all(limit);
+      if (rows && rows.length > 0) {
+        const items = rows.map((r: any) => ({
+          title: r.translated_title ?? r.title,
+          link: r.link,
+          source: r.source,
+          pubDate: r.pub_date ?? r.cached_at,
+        }));
+        return Response.json({ items, fetchedAt: rows[0]?.cached_at ?? '', total: items.length, cached: true });
+      }
+    } catch { /* cache miss → fall through to live fetch */ }
+  }
 
   const selectedFeeds = category
     ? FEEDS.filter((f) => f.category === category)
@@ -288,11 +312,9 @@ export async function GET(req: Request) {
 
   items = items.slice(0, limit);
 
-  // Auto-translate English news to Chinese
-  if (shouldTranslate) {
-    const translated = await translateItems(items);
-    items = translated;
-  }
+  // Live fetch fallback — always translate
+  const translated = await translateItems(items);
+  items = translated;
 
   return Response.json({
     items,
