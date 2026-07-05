@@ -128,6 +128,8 @@ export default function VideoAnalysisPage() {
   const [submitError, setSubmitError] = useState('');
 
   const [tab, setTab] = useState<'list' | 'create' | 'agent-reach'>('list');
+  // 用于 list tab 内轮询 running 任务状态
+  const [pollingJobId, setPollingJobId] = useState<number | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -186,17 +188,26 @@ export default function VideoAnalysisPage() {
   };
 
   const handleRun = async (jobId: number) => {
+    // 乐观更新：立即显示为"采集中"，不用等 API 返回
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'running' } : j));
+    setPollingJobId(jobId);
     try {
       const res = await fetch(`/api/video-analysis/jobs/${jobId}`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'pending' } : j));
+        setPollingJobId(null);
         alert(data.error || '运行失败');
         return;
       }
-      fetchJobs();
+      // API 同步等待爬虫完成，fetchJobs 会拿到最终状态
+      await fetchJobs();
     } catch (err: any) {
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'pending' } : j));
+      setPollingJobId(null);
       alert(err.message);
     }
+    setPollingJobId(null);
   };
 
   const handleView = async (job: Job) => {
@@ -214,6 +225,30 @@ export default function VideoAnalysisPage() {
     } catch {}
     setDetailLoading(false);
   };
+
+  // 当 pollingJobId 设置时，轮询该任务状态，实现实时状态更新
+  useEffect(() => {
+    if (pollingJobId === null) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/video-analysis/jobs/${pollingJobId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const updated = data.job;
+          if (updated && updated.status !== 'running') {
+            // 任务已结束，停止轮询并刷新全列表
+            clearInterval(interval);
+            setPollingJobId(null);
+            await fetchJobs();
+          } else {
+            // 只更新这一个任务的状态
+            setJobs(prev => prev.map(j => j.id === pollingJobId ? { ...j, status: 'running', progress: updated.progress || j.progress } : j));
+          }
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [pollingJobId]);
 
   const handleAnalyze = async (jobId: number) => {
     setAnalyzing(true);
@@ -385,182 +420,9 @@ export default function VideoAnalysisPage() {
           </div>
         )}
 
-        {/* Agent Reach Tab */}
+        {/* Agent Reach Tab — 多平台搜索 */}
         {tab === 'agent-reach' && (
-          <div className="space-y-6">
-            {/* Header Card */}
-            <div className="app-panel p-6">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-700 to-[#173f3c] flex items-center justify-center text-white text-xl flex-shrink-0 shadow-sm">
-                  👁️
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-lg font-bold text-slate-800">Agent Reach</h2>
-                  <p className="text-sm text-slate-600 mt-1">
-                    给你的 AI Agent 一键装上互联网能力 — YouTube、B站、Twitter、GitHub 等 13+ 平台
-                  </p>
-                  <div className="flex items-center gap-3 mt-2">
-                    <a
-                      href="https://github.com/Panniantong/Agent-Reach"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-teal-700 hover:underline"
-                    >
-                      github.com/Panniantong/Agent-Reach ↗
-                    </a>
-                    <span className="text-xs bg-blue-100 text-teal-700 px-2 py-0.5 rounded-full font-medium">v1.5.0</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Install Command */}
-            <div className="app-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                <h3 className="font-semibold text-slate-700 text-sm">⚡ 快速安装</h3>
-                <p className="text-xs text-slate-400 mt-0.5">复制这条命令给你的 AI Agent（Claude Code / OpenClaw / Cursor 等）</p>
-              </div>
-              <div className="p-5">
-                <div className="bg-slate-900 rounded-lg px-4 py-3 font-mono text-xs text-green-400 overflow-x-auto">
-                  帮我安装 Agent Reach：https://raw.githubusercontent.com/Panniantong/agent-reach/main/docs/install.md
-                </div>
-                <div className="mt-3 flex gap-2 flex-wrap">
-                  <a
-                    href="https://github.com/Panniantong/Agent-Reach"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs px-3 py-1.5 app-button-secondary rounded-lg text-slate-600"
-                  >
-                    📄 查看 README
-                  </a>
-                  <a
-                    href="https://trendshift.io/repositories/24387"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs px-3 py-1.5 app-button-secondary rounded-lg text-slate-600"
-                  >
-                    📈 GitHub Trending #1
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            {/* Supported Platforms */}
-            <div className="app-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                <h3 className="font-semibold text-slate-700 text-sm">🌐 支持的平台</h3>
-              </div>
-              <div className="p-5">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {[
-                    { icon: '🌐', name: '网页', desc: 'Jina Reader', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
-                    { icon: '📺', name: 'YouTube', desc: 'yt-dlp 字幕提取', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
-                    { icon: '📡', name: 'RSS', desc: 'feedparser', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
-                    { icon: '📦', name: 'GitHub', desc: 'gh CLI', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
-                    { icon: '🔍', name: '全网搜索', desc: 'Exa 语义搜索', tag: 'MCP 免费', tagColor: 'bg-teal-50 text-teal-700 border border-teal-200' },
-                    { icon: '📺', name: 'B站', desc: 'bili-cli / OpenCLI', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
-                    { icon: '🐦', name: 'Twitter/X', desc: 'twitter-cli / OpenCLI', tag: '需 Cookie', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '📖', name: 'Reddit', desc: 'OpenCLI / rdt-cli', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '📕', name: '小红书', desc: 'OpenCLI / xhs-cli', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '📘', name: 'Facebook', desc: 'OpenCLI', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '📷', name: 'Instagram', desc: 'OpenCLI', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '💼', name: 'LinkedIn', desc: 'linkedin-mcp / Jina', tag: '需登录态', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '📈', name: '雪球', desc: '股票行情', tag: '需 Cookie', tagColor: 'bg-amber-50 text-amber-600 border border-amber-200' },
-                    { icon: '🎙️', name: '小宇宙播客', desc: 'Groq Whisper 转录', tag: '需 Groq Key', tagColor: 'bg-teal-50 text-teal-700 border border-teal-200' },
-                    { icon: '💻', name: 'V2EX', desc: '无需配置', tag: '零配置', tagColor: 'bg-green-50 text-green-600 border border-green-200' },
-                  ].map(p => (
-                    <div key={p.name} className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-100 hover:border-teal-200 hover:bg-teal-50/30 transition text-sm">
-                      <span className="text-lg flex-shrink-0">{p.icon}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-slate-700 text-xs truncate">{p.name}</div>
-                        <div className="text-xs text-slate-400 mt-0.5 truncate">{p.desc}</div>
-                        <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded font-medium ${p.tagColor}`}>{p.tag}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Current Routing */}
-            <div className="app-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                <h3 className="font-semibold text-slate-700 text-sm">🔌 当前后端路由</h3>
-                <p className="text-xs text-slate-400 mt-0.5">每个平台自动选最优后端，失效时自动切换</p>
-              </div>
-              <div className="p-5">
-                <div className="space-y-2 text-xs font-mono">
-                  {[
-                    { platform: '网页', via: 'Jina Reader' },
-                    { platform: 'YouTube', via: 'yt-dlp' },
-                    { platform: 'B站（搜索+详情）', via: 'bili-cli (yt-dlp 已被 B站风控封死)' },
-                    { platform: 'B站字幕', via: 'OpenCLI' },
-                    { platform: '全网搜索', via: 'Exa via mcporter (MCP, 免费无需 Key)' },
-                    { platform: 'GitHub', via: 'gh CLI' },
-                    { platform: 'RSS', via: 'feedparser' },
-                    { platform: 'Twitter', via: 'twitter-cli → OpenCLI (兜底)' },
-                    { platform: '小红书', via: 'OpenCLI (桌面) → xiaohongshu-mcp (服务器)' },
-                    { platform: 'Reddit', via: 'OpenCLI (桌面) → rdt-cli' },
-                    { platform: 'Facebook / Instagram', via: 'OpenCLI (复用 Chrome 登录态)' },
-                    { platform: 'LinkedIn', via: 'linkedin-mcp → Jina Reader' },
-                    { platform: '雪球', via: 'Cookie-Editor / --from-browser chrome' },
-                    { platform: '小宇宙播客', via: 'Groq Whisper (免费 Key)' },
-                  ].map(r => (
-                    <div key={r.platform} className="flex items-center gap-3 py-1.5 border-b border-slate-50 last:border-0">
-                      <span className="w-28 text-slate-500 flex-shrink-0">{r.platform}</span>
-                      <span className="text-slate-300">→</span>
-                      <span className="text-slate-700 flex-1">{r.via}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Key Commands */}
-            <div className="app-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                <h3 className="font-semibold text-slate-700 text-sm">🛠️ 常用命令</h3>
-              </div>
-              <div className="p-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
-                  {[
-                    { cmd: 'agent-reach install --env=auto', desc: '一键安装核心渠道（零配置）' },
-                    { cmd: 'agent-reach install --channels=all', desc: '安装全部渠道（含需登录态）' },
-                    { cmd: 'agent-reach doctor', desc: '诊断所有渠道状态' },
-                    { cmd: 'agent-reach check-update', desc: '检查新版本' },
-                    { cmd: 'agent-reach configure twitter-cookies "..."', desc: '配置 Twitter Cookie' },
-                    { cmd: 'agent-reach configure groq-key gsk_xxx', desc: '配置小宇宙转录 Key' },
-                    { cmd: 'agent-reach uninstall', desc: '卸载所有' },
-                  ].map(c => (
-                    <div key={c.cmd} className="flex items-start gap-3 app-panel rounded-lg px-3 py-2.5">
-                      <code className="text-teal-700 flex-shrink-0">{c.cmd}</code>
-                      <span className="text-slate-400">— {c.desc}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Why Agent Reach */}
-            <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl border border-slate-200 p-6">
-              <h3 className="font-semibold text-slate-700 text-sm mb-3">💡 为什么需要 Agent Reach</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                {[
-                  { title: '完全免费', desc: '所有工具开源、所有 API 免费。仅服务器代理 ~$1/月' },
-                  { title: '隐私安全', desc: 'Cookie 只存本地 ~/.agent-reach/，不上传不外传' },
-                  { title: '持续换代', desc: '平台封了自动换下一个后端，零操作（如 yt-dlp 被 B站封 → 切 bili-cli）' },
-                  { title: '兼容所有 Agent', desc: 'Claude Code、OpenClaw、Cursor、Windsurf…任何能跑命令行的 Agent 都能用' },
-                  { title: '自带诊断', desc: 'agent-reach doctor 一条命令告诉你哪个通、哪个不通' },
-                  { title: '安全模式', desc: '--safe 不修改系统，只列需求；--dry-run 预览所有操作' },
-                ].map(item => (
-                  <div key={item.title} className="app-card p-3 border border-slate-100">
-                    <div className="font-medium text-slate-700 mb-1">{item.title}</div>
-                    <div className="text-slate-400">{item.desc}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <AgentReachSearch />
         )}
         {tab === 'list' && (
           <div>
@@ -605,9 +467,14 @@ export default function VideoAnalysisPage() {
                                 运行
                               </button>
                             )}
-                            {job.status === 'running' && (
-                              <span className="text-xs px-2 py-1 bg-teal-50 text-blue-400 rounded">采集中</span>
-                            )}
+                            {job.status === 'running' && pollingJobId === job.id ? (
+                              <span className="text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded flex items-center gap-1">
+                                <span className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin inline-block" />
+                                采集中…
+                              </span>
+                            ) : job.status === 'running' ? (
+                              <span className="text-xs px-2 py-1 bg-blue-50 text-blue-400 rounded">采集中</span>
+                            ) : null}
                             <button
                               onClick={() => handleView(job)}
                               className="text-xs px-2 py-1 bg-slate-50 text-slate-600 rounded hover:bg-slate-100"
@@ -757,6 +624,157 @@ export default function VideoAnalysisPage() {
                 <p className="text-center text-slate-400 py-4">无法加载详情</p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Agent Reach Search ───────────────────────────────────────────────────────
+function AgentReachSearch() {
+  const [query, setQuery] = useState('');
+  const [platform, setPlatform] = useState('all');
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [searched, setSearched] = useState(false);
+  const [time, setTime] = useState(0);
+
+  const run = async () => {
+    if (!query.trim()) return;
+    setLoading(true); setError(''); setResults([]); setSearched(true);
+    try {
+      const res = await fetch(
+        `/api/agent-reach/search?q=${encodeURIComponent(query)}&platform=${platform}`
+      );
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || `HTTP ${res.status}`); return; }
+      setResults(data.results || []);
+      setTime(data.time || 0);
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const PLATFORMS = [
+    { k: 'all', label: '🌐 全平台' },
+    { k: 'github', label: '📦 GitHub' },
+    { k: 'github-code', label: '💻 代码' },
+    { k: 'youtube', label: '📺 YouTube' },
+    { k: 'web', label: '🔍 全网' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="app-card p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-teal-700 to-[#173f3c] flex items-center justify-center text-white text-lg">👁️</div>
+        <div>
+          <h2 className="text-sm font-bold text-slate-800">Agent Reach 搜索</h2>
+          <p className="text-xs text-slate-500">多平台内容发现 · GitHub / YouTube / 全网搜索</p>
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div className="app-card p-4 space-y-3">
+        <div className="flex gap-2 flex-wrap">
+          {PLATFORMS.map(p => (
+            <button key={p.k} onClick={() => setPlatform(p.k)}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                platform === p.k ? 'app-button-primary' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && run()}
+            placeholder="输入搜索关键词，按 Enter 搜索…"
+            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-600"
+          />
+          <button onClick={run} disabled={loading}
+            className="px-4 py-2 app-button-primary rounded-lg text-sm disabled:opacity-50 flex items-center gap-2">
+            {loading ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />搜索中…</>
+              : '🔍 搜索'}
+          </button>
+        </div>
+        {error && <div className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</div>}
+      </div>
+
+      {/* Results */}
+      {searched && !loading && (
+        <div className="app-card">
+          <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+            <span className="text-xs text-slate-500">
+              {results.length === 0 ? '没有找到结果' : `找到 ${results.length} 条结果${time ? ` (${time}ms)` : ''}`}
+            </span>
+          </div>
+          {results.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-400">试试其他关键词或平台</div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {results.map((r, i) => (
+                <div key={i} className="px-4 py-3 hover:bg-slate-50">
+                  <div className="flex items-start gap-2">
+                    <span className={`mt-0.5 text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
+                      r.platform === 'github' ? 'bg-gray-100 text-gray-600' :
+                      r.platform === 'github-code' ? 'bg-gray-200 text-gray-800' :
+                      r.platform === 'youtube' ? 'bg-red-50 text-red-600' :
+                      r.platform === 'web' ? 'bg-blue-50 text-blue-600' :
+                      r.platform === 'bilibili' ? 'bg-pink-50 text-pink-600' :
+                      'bg-slate-100 text-slate-600'
+                    }`}>
+                      {r.platform === 'github' ? 'GitHub' :
+                       r.platform === 'github-code' ? '代码' :
+                       r.platform === 'youtube' ? 'YouTube' :
+                       r.platform === 'web' ? '网页' :
+                       r.platform === 'bilibili' ? 'B站' : r.platform}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <a href={r.url} target="_blank" rel="noopener noreferrer"
+                        className="text-sm text-teal-700 hover:underline font-medium block truncate">
+                        {r.title}
+                      </a>
+                      {r.description && (
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{r.description}</p>
+                      )}
+                      {r.stars != null && (
+                        <span className="text-xs text-amber-600 mt-1">⭐ {r.stars.toLocaleString()}</span>
+                      )}
+                      {r.language && <span className="text-xs text-slate-400 ml-2">/{r.language}</span>}
+                      {r.author && <span className="text-xs text-slate-400 ml-2">by {r.author}</span>}
+                    </div>
+                    <a href={r.url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-teal-600 hover:text-teal-800 flex-shrink-0 ml-2">
+                      打开 ↗
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick Links */}
+      {!searched && (
+        <div className="app-card p-4">
+          <div className="text-xs text-slate-500 mb-3">💡 试试这些搜索</div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { q: 'react hooks tutorial', p: 'github', label: 'react hooks 教程' },
+              { q: 'nextjs 14 tutorial', p: 'youtube', label: 'Next.js 教程' },
+              { q: 'worldquant brain alpha', p: 'web', label: 'WQ Alpha 研究' },
+              { q: 'site:github.com python trading', p: 'github', label: 'Python 量化交易' },
+            ].map(s => (
+              <button key={s.q} onClick={() => { setQuery(s.q); setPlatform(s.p); }}
+                className="text-xs px-3 py-1.5 bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 border border-slate-200 transition">
+                {s.label}
+              </button>
+            ))}
           </div>
         </div>
       )}

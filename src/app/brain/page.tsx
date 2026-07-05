@@ -145,7 +145,7 @@ function MetricCell({ value, warnIfAbs }: { value: string | null | undefined; wa
 // ─── Page ───────────────────────────────────────────────────────────────────────
 export default function BrainPage() {
   const [status, setStatus] = useState<BrainStatus | null>(null);
-  const [tab, setTab] = useState<'unsubmitted' | 'submitted' | 'userinfo'>('unsubmitted');
+  const [tab, setTab] = useState<'unsubmitted' | 'submitted' | 'userinfo' | 'research'>('unsubmitted');
   const [alphas, setAlphas] = useState<Alpha[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -303,6 +303,7 @@ export default function BrainPage() {
             { key: 'unsubmitted', label: `未提交 (${status?.unsubmittedCount ?? 0})` },
             { key: 'submitted', label: `已提交 (${status?.submittedCount ?? 0})` },
             { key: 'userinfo', label: '个人信息' },
+            { key: 'research', label: '🔬 Deep Research' },
           ].map((t) => (
             <button
               key={t.key}
@@ -321,6 +322,8 @@ export default function BrainPage() {
         {/* 内容区 */}
         {tab === 'userinfo' ? (
           <UserInfoPanel status={status} />
+        ) : tab === 'research' ? (
+          <BrainDeepResearch />
         ) : (
           <AlphaTable
             alphas={alphas}
@@ -495,6 +498,146 @@ function AlphaDetailModal({
           <AlphaDetailContent alpha={alpha} />
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Deep Research ─────────────────────────────────────────────────────────────
+function BrainDeepResearch() {
+  const [input, setInput] = useState('');
+  const [alphaId, setAlphaId] = useState('');
+  const [expression, setExpression] = useState('');
+  const [mode, setMode] = useState<'query' | 'alpha' | 'expression'>('query');
+  const [output, setOutput] = useState('');
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState('');
+  const [topAlphas, setTopAlphas] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/brain/deep-research?mode=alphas')
+      .then(r => r.json())
+      .then(d => { if (d.spectacular) setTopAlphas(d.spectacular.slice(0, 10)); })
+      .catch(() => {});
+  }, []);
+
+  const run = async () => {
+    if (mode === 'alpha' && !alphaId) { setError('请输入 Alpha ID'); return; }
+    if (mode === 'expression' && !expression) { setError('请输入表达式'); return; }
+    if (mode === 'query' && !input) { setError('请输入研究问题'); return; }
+    setOutput(''); setError(''); setRunning(true);
+    try {
+      const body: any = {};
+      if (mode === 'query') body.query = input;
+      else if (mode === 'alpha') body.alphaId = alphaId;
+      else body.expression = expression;
+      const res = await fetch('/api/brain/deep-research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok || !res.body) { setError(`请求失败: ${await res.text()}`); setRunning(false); return; }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      while (!done) {
+        const { done: d, value } = await reader.read();
+        done = d;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          for (const line of chunk.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6).trim();
+            if (!data || data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.error) setError(parsed.content);
+              else if (parsed.done) { done = true; break; }
+              else setOutput(prev => prev + (parsed.content || ''));
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) { setError(err.message); }
+    finally { setRunning(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        {([
+          { k: 'query', label: '💬 自由提问' },
+          { k: 'alpha', label: '📊 Alpha 研究' },
+          { k: 'expression', label: '📐 表达式分析' },
+        ] as const).map(m => (
+          <button
+            key={m.k}
+            onClick={() => { setMode(m.k); setOutput(''); setError(''); }}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+              mode === m.k ? 'app-button-primary' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="app-card p-4 space-y-3">
+        {mode === 'alpha' ? (
+          <div>
+            <div className="text-xs text-slate-500 mb-1.5">Alpha ID</div>
+            <input value={alphaId} onChange={e => setAlphaId(e.target.value)}
+              placeholder="例如: 8a9b2c1d..." className="w-full px-3 py-2 border border-slate-200 rounded text-sm font-mono focus:outline-none focus:border-teal-600" />
+            {topAlphas.length > 0 && (
+              <div className="mt-2">
+                <div className="text-xs text-slate-500 mb-1.5">可用 SPECTACULAR Alpha（点击填充）</div>
+                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                  {topAlphas.map(a => (
+                    <button key={a.id} onClick={() => { setAlphaId(a.id); setOutput(''); }}
+                      title={`f=${a.fitness} s=${a.sharpe}`}
+                      className="text-xs px-2 py-1 bg-amber-50 text-amber-700 rounded hover:bg-amber-100 font-mono truncate max-w-[200px]">
+                      {a.id} <span className="text-amber-400">f{a.fitness}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : mode === 'expression' ? (
+          <div>
+            <div className="text-xs text-slate-500 mb-1.5">Alpha 表达式</div>
+            <textarea value={expression} onChange={e => setExpression(e.target.value)}
+              placeholder="例如: rank(-ts_delta(log(close),1))" rows={4}
+              className="w-full px-3 py-2 border border-slate-200 rounded text-xs font-mono focus:outline-none focus:border-teal-600 resize-y" />
+          </div>
+        ) : (
+          <div>
+            <div className="text-xs text-slate-500 mb-1.5">研究问题</div>
+            <textarea value={input} onChange={e => setInput(e.target.value)}
+              placeholder="例如: 中国A股市场的短期反转因子有什么最新研究进展？" rows={3}
+              className="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-600 resize-y" />
+          </div>
+        )}
+        <div className="flex items-center gap-3">
+          <button onClick={run} disabled={running}
+            className="px-4 py-2 rounded text-sm font-medium app-button-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+            {running ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />研究中…</> : '🚀 开始研究'}
+          </button>
+          {(output || error) && <button onClick={() => { setOutput(''); setError(''); }} className="text-xs text-slate-500 hover:text-slate-700">清空</button>}
+        </div>
+      </div>
+
+      {(output || running || error) && (
+        <div className="app-card">
+          <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+            <span className="text-xs text-slate-500">研究结果</span>
+            {running && <span className="flex items-center gap-1.5 text-xs text-teal-600"><span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse" />生成中…</span>}
+          </div>
+          <div className="p-4">
+            {error ? <div className="text-sm text-red-600 bg-red-50 rounded p-3">{error}</div>
+              : <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{output || <span className="text-slate-400">等待响应…</span>}</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
