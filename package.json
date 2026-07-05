@@ -14,7 +14,7 @@
   "dependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.1.2",
+    "better-sqlite3": "11.10.0",
     "cheerio": "^1.2.0",
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.32.1",

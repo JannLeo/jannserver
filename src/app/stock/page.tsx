@@ -124,7 +124,7 @@ function MarketTab() {
           name: info.name || info.name_cn || symbol,
           price,
           change: chg,
-          change_pct: prev > 0 ? (chg / prev) * 100 : 0,
+          change_pct: price > 0 ? (chg / price) * 100 : 0,
           volume: parseInt(info.volume || 0),
           market: info.market || 'unknown',
         },
