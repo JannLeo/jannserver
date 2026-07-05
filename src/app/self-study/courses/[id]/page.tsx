@@ -171,7 +171,7 @@ export default function CourseDetailPage() {
 
       {/* Action links */}
       <div className="flex gap-3">
-        <Link href="/self-study/tutor" className="rounded-xl bg-amber-50 border border-amber-200 px-5 py-3 text-sm font-medium text-amber-800 hover:bg-amber-100">
+        <Link href={`/self-study/tutor?courseId=${courseId}`} className="rounded-xl bg-amber-50 border border-amber-200 px-5 py-3 text-sm font-medium text-amber-800 hover:bg-amber-100">
           🤖 就本课程向 AI 提问
         </Link>
         <Link href="/self-study/flashcards" className="rounded-xl bg-violet-50 border border-violet-200 px-5 py-3 text-sm font-medium text-violet-800 hover:bg-violet-100">

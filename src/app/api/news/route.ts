@@ -211,19 +211,16 @@ function isEnglish(text: string): boolean {
 }
 
 /**
- * Translate a single text via MyMemory API.
+ * Translate a single text via MyMemory API (through proxy).
  */
 async function translateText(text: string): Promise<string> {
   const cached = translateCache.get(text);
   if (cached) return cached;
 
   try {
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 500))}&langpair=en|zh-CN`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (!res.ok) return text;
-    const data: MyMemoryResponse = await res.json();
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 500))}&langpair=en|zh-CN`;
+    const raw = await proxyFetchText(url, 8000);
+    const data = JSON.parse(raw) as MyMemoryResponse;
     if (data.responseStatus === 200 && data.responseData?.translatedText) {
       const translated = data.responseData.translatedText;
       translateCache.set(text, translated);

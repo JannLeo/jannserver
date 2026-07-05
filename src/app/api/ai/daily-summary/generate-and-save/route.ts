@@ -12,6 +12,8 @@ import { v4 as uuidv4 } from 'uuid';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n## |$)/;
+
 const DEFAULT_DAILY_TEMPLATE = `# {{date}}
 
 ## 今日重点
@@ -136,8 +138,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: `AI 请求失败: ${err.message}`, date }, { status: 502 });
     }
 
-    // 3. 追加到 daily note
-    const updatedContent = `${dailyContent.trimEnd()}\n\n## AI 总结\n\n${markdown.trim()}\n`;
+    // 3. 保存：直接以 AI 生成内容为主，保留模板供手动编辑
+    // 如果已有 AI 总结段落则替换，否则在模板前插入（使 AI 总结在最上方）
+    let updatedContent: string;
+    if (/^##\s*AI\s*总结/m.test(dailyContent)) {
+      updatedContent = dailyContent.replace(AI_SUMMARY_RE, `## AI 总结\n\n${markdown.trim()}\n`);
+    } else {
+      // 把 AI 总结放在模板最前面（作为主要阅读内容），原模板保留供手动填充
+      updatedContent = `# ${date}\n\n## AI 总结\n\n${markdown.trim()}\n\n---\n\n${dailyContent.trimStart()}`;
+    }
     writeMarkdown(dailyRow!.filePath || '', updatedContent);
     db.update(dailyPages).set({ updatedAt: new Date().toISOString() }).where(eq(dailyPages.date, date)).run();
     await updateFts('daily', dailyRow!.id, `Daily ${date}`, updatedContent);

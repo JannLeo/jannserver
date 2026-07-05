@@ -1,124 +1,105 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
-interface Message { role: 'user' | 'assistant'; content: string; isOverview?: boolean; }
-interface ModuleInfo { id: string; title: string; description: string; hasRepo: boolean; repoContext: string; repoPath: string; }
-interface OverviewData { fileTree: string; keyFiles: { relPath: string; content: string }[]; error?: string; }
+interface Message { role: 'user' | 'assistant'; content: string; }
+interface CourseInfo { id: string; title: string; icon: string; }
+interface ModuleInfo { id: string; title: string; description: string; content?: string; }
+function TutorContent() {
+  const searchParams = useSearchParams();
+  const courseIdParam = searchParams.get('courseId') ?? '';
 
-export default function TutorPage() {
-  const [courses, setCourses] = useState<any[]>([]);
+  const [courses, setCourses] = useState<CourseInfo[]>([]);
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedModule, setSelectedModule] = useState('');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [overview, setOverview] = useState<OverviewData | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-  const [overviewSummary, setOverviewSummary] = useState<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { fetch('/api/self-study/courses').then(r => r.json()).then(d => setCourses(d.courses ?? [])); }, []);
+  // Load courses
+  useEffect(() => {
+    fetch('/api/self-study/courses').then(r => r.json()).then(d => setCourses(d.courses ?? []));
+  }, []);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, overviewSummary]);
+  // Auto-select course from URL param
+  useEffect(() => {
+    if (courseIdParam && courses.length > 0) {
+      const found = courses.find(c => c.id === courseIdParam);
+      if (found) {
+        setSelectedCourse(found.id);
+        fetch(`/api/self-study/courses/${found.id}`)
+          .then(r => r.json())
+          .then(d => {
+            const mods: ModuleInfo[] = (d.modules ?? []).map((m: any) => ({
+              id: m.id, title: m.title, description: m.description ?? '',
+              hasRepo: false, repoContext: '', repoPath: '',
+              content: m.content ?? '',
+            }));
+            setModules(mods);
+            // Auto-select first module and show welcome message
+            if (mods.length > 0) {
+              const firstMod = mods[0];
+              setSelectedModule(firstMod.id);
+              setMessages([{
+                role: 'assistant',
+                content: `👋 欢迎学习「${found.title}」！\n\n我现在已经了解这门课程的全部内容，你可以直接向我提问。例如：\n• "请解释这节课的重点语法"\n• "给我出几道练习题"\n• "这个词怎么记忆？"\n• "这个时态有什么用法？"\n\n输入你的问题开始吧！`,
+              }]);
+            }
+          });
+      }
+    }
+  }, [courseIdParam, courses]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const onCourseChange = (courseId: string) => {
     setSelectedCourse(courseId);
     setSelectedModule('');
-    setOverview(null);
-    setOverviewSummary('');
+    setModules([]);
     setMessages([]);
     if (courseId) {
-      fetch(`/api/self-study/courses/${courseId}`).then(r => r.json()).then(d => setModules(d.modules ?? []));
-    } else {
-      setModules([]);
-    }
-  };
-
-  const onModuleSelect = async (moduleId: string) => {
-    setSelectedModule(moduleId);
-    setMessages([]);
-    setOverviewSummary('');
-
-    // Check if module has repo
-    const mod = modules.find(m => m.id === moduleId);
-    if (!mod?.hasRepo) {
-      setOverview(null);
-      setMessages([{ role: 'assistant', content: `👋 开始学习「${mod?.title}」！你可以向我提问任何相关问题。` }]);
-      return;
-    }
-
-    // Load overview
-    setOverview(null);
-    setOverviewSummary('');
-    setOverviewLoading(true);
-    setMessages([{ role: 'assistant', content: `🔍 正在分析「${mod.title}」的代码架构...` }]);
-
-    try {
-      const courseId = mod.id.split('-').slice(0, -1).join('-');
-      const res = await fetch(`/api/self-study/courses/${courseId}/overview`);
-      const data = await res.json();
-      const overviewMod = data.modules?.find((m: ModuleInfo) => m.id === moduleId);
-
-      if (overviewMod?.error) {
-        setMessages([{ role: 'assistant', content: `⚠️ ${overviewMod.error}` }]);
-        setOverviewLoading(false);
-        return;
-      }
-
-      // Call AI to generate architecture overview
-      const overviewData: OverviewData = { fileTree: overviewMod.fileTree ?? '', keyFiles: overviewMod.keyFiles ?? [] };
-      setOverview(overviewData);
-
-      const overviewPrompt = `你是一个代码架构导师。请根据以下项目文件结构，生成一份学习概览，用中文回答。
-
-## 📁 文件结构
-${overviewData.fileTree.slice(0, 3000)}
-
-## 📄 关键代码文件
-${overviewData.keyFiles.map(kf => `### ${kf.relPath}\n\`\`\`\n${kf.content.slice(0, 2000)}\n\`\`\``).join('\n\n')}
-
-请包含：
-1. **架构总览** — 这个模块/目录的职责是什么，采用了什么设计模式/架构风格
-2. **核心文件解析** — 每个关键文件的作用、关键函数/类的说明
-3. **学习路线** — 建议怎么逐步阅读这些代码，关注哪些入口
-4. **动手练习** — 给出一个能理解这个架构的小练习`;
-
-      const aiRes = await fetch('/api/ai/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: overviewPrompt, mode: 'quick' }),
+      fetch(`/api/self-study/courses/${courseId}`).then(r => r.json()).then(d => {
+        const mods: ModuleInfo[] = (d.modules ?? []).map((m: any) => ({
+          id: m.id, title: m.title, description: m.description ?? '',
+          hasRepo: false, repoContext: '', repoPath: '',
+          content: m.content ?? '',
+        }));
+        setModules(mods);
+        const course = (d.courses ?? []).find((c: any) => c.id === courseId) || { title: '该课程' };
+        setMessages([{
+          role: 'assistant',
+          content: `👋 欢迎学习「${course.title}」！直接提问吧，我来帮你掌握这门课程。`,
+        }]);
       });
-      const aiData = await aiRes.json();
-      const summary = aiData.answer || aiData.response || '无法生成概览。';
-      setOverviewSummary(summary);
-      setMessages([{ role: 'assistant', content: '', isOverview: true }]);
-    } catch {
-      setMessages([{ role: 'assistant', content: '⚠️ 代码概览生成失败，请重试。' }]);
-    } finally {
-      setOverviewLoading(false);
     }
   };
 
   const send = async () => {
     if (!input.trim() || loading) return;
+    if (!selectedCourse) return;
     const userMsg = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setLoading(true);
 
     try {
+      const course = courses.find(c => c.id === selectedCourse);
       const mod = modules.find(m => m.id === selectedModule);
-      let codeContext = '';
 
-      // If module has repo and we have code overview, attach relevant code
-      if (mod?.hasRepo && overview) {
-        codeContext = `## 当前学习的代码仓库上下文\n模块：${mod.title}\n路径：${mod.repoPath}\n\n相关文件：\n${
-          overview.keyFiles.map(kf => `### ${kf.relPath}\n\`\`\`\n${kf.content.slice(0, 1500)}\n\`\`\``).join('\n\n')
-        }`;
+      // Build rich context: course name + module content
+      let courseContext = `## 当前课程：${course?.icon ?? ''} ${course?.title ?? selectedCourse}`;
+      if (mod?.content) {
+        courseContext += `\n## 当前章节：${mod.title}\n${mod.content}`;
+      } else if (modules.length > 0) {
+        // Include all modules as context if no specific module selected
+        const allContent = modules.map(m => `### ${m.title}\n${m.content ?? ''}`).join('\n\n');
+        courseContext += `\n## 全部章节内容：\n${allContent}`;
       }
 
-      const question = `${codeContext ? `${codeContext}\n\n---\n\n` : ''}用户问题：${userMsg}`;
+      const question = `${courseContext}\n\n---\n\n用户问题：${userMsg}`;
 
       const res = await fetch('/api/ai/ask', {
         method: 'POST',
@@ -139,65 +120,47 @@ ${overviewData.keyFiles.map(kf => `### ${kf.relPath}\n\`\`\`\n${kf.content.slice
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
+  const currentCourse = courses.find(c => c.id === selectedCourse);
+
   return (
     <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-4xl flex-col p-4 sm:p-6">
-      {/* Top controls */}
-      <div className="mb-4 grid gap-2 sm:grid-cols-3">
+      {/* Header */}
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-stone-800">🤖 AI 导师</h1>
+          <p className="text-xs text-stone-500 mt-0.5">
+            {currentCourse ? `正在学习：${currentCourse.icon} ${currentCourse.title}` : '选择一个课程开始学习'}
+          </p>
+        </div>
+        <Link href="/self-study/courses" className="text-xs text-teal-600 hover:underline">← 返回课程</Link>
+      </div>
+
+      {/* Course/Module selectors */}
+      <div className="mb-3 grid gap-2 sm:grid-cols-2">
         <select value={selectedCourse} onChange={e => onCourseChange(e.target.value)}
           className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm">
           <option value="">📚 选择课程</option>
-          {courses.map((c: any) => <option key={c.id} value={c.id}>{c.icon} {c.title}</option>)}
+          {courses.map(c => <option key={c.id} value={c.id}>{c.icon} {c.title}</option>)}
         </select>
-        <select value={selectedModule} onChange={e => onModuleSelect(e.target.value)} disabled={!selectedCourse}
+        <select value={selectedModule} onChange={e => setSelectedModule(e.target.value)}
+          disabled={!selectedCourse || modules.length === 0}
           className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm">
-          <option value="">📖 选择章节</option>
-          {modules.map((m: ModuleInfo) => (
-            <option key={m.id} value={m.id}>
-              {m.hasRepo ? '📂' : '📝'} {m.title}
-            </option>
+          <option value="">📖 全部章节（综合问答）</option>
+          {modules.map(m => (
+            <option key={m.id} value={m.id}>📝 {m.title}</option>
           ))}
         </select>
-        {overview && (
-          <div className="flex items-center gap-2 rounded-xl bg-teal-50 border border-teal-200 px-3 py-2 text-xs text-teal-700">
-            <span>🔗</span>
-            <span className="truncate">{modules.find(m => m.id === selectedModule)?.repoPath}</span>
-          </div>
-        )}
       </div>
-
-      {/* Overview display */}
-      {overviewSummary && (
-        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm leading-relaxed text-stone-700">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="text-lg">🏗️</span>
-            <span className="font-bold text-teal-800">代码架构概览</span>
-          </div>
-          <div className="prose prose-sm max-w-none space-y-1">
-            {overviewSummary.split('\n').map((line, i) => {
-              if (line.startsWith('**') && line.endsWith('**')) return <div key={i} className="font-bold text-stone-800 mt-3 mb-1">{line.slice(2, -2)}</div>;
-              if (line.trim().startsWith('-')) return <div key={i} className="ml-2 text-stone-600">• {line.trim().slice(1).trim()}</div>;
-              if (line.trim() === '') return <div key={i} className="h-1" />;
-              return <div key={i} className="text-stone-600">{line}</div>;
-            })}
-          </div>
-          <div className="mt-3 text-xs text-teal-600">学习了代码概览后，你可以在下面提问细节</div>
-        </div>
-      )}
 
       {/* Messages */}
       <div className="flex-1 space-y-4 overflow-y-auto rounded-2xl border border-stone-200 bg-stone-50 p-4">
-        {overviewLoading && (
-          <div className="flex items-center gap-3 rounded-2xl bg-teal-50 border border-teal-200 px-5 py-4">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-teal-600 border-t-transparent" />
-            <div className="text-sm text-teal-700">正在分析代码结构 ...</div>
-          </div>
-        )}
-
-        {messages.length === 0 && !overviewLoading && (
+        {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-stone-400">
             <div className="text-4xl mb-3">🤖</div>
-            <div className="text-sm">选择一个课程和章节开始学习</div>
-            <div className="mt-2 text-xs">带 📂 的章节会先分析代码结构给你看</div>
+            <div className="text-sm">选择一个课程，然后输入你的问题</div>
+            <div className="mt-2 text-xs text-center px-4 text-stone-400">
+              AI 会根据课程内容为你解答
+            </div>
           </div>
         )}
 
@@ -206,10 +169,9 @@ ${overviewData.keyFiles.map(kf => `### ${kf.relPath}\n\`\`\`\n${kf.content.slice
             <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
               msg.role === 'user'
                 ? 'bg-teal-600 text-white'
-                : msg.isOverview ? ''
                 : 'bg-white border border-stone-200 text-stone-700'
             }`}>
-              {msg.content.split('\n').map((line, j) => (
+              {msg.content.split('\n').map((line: string, j: number) => (
                 <div key={j} className={line.trim() ? '' : 'h-1'}>{line}</div>
               ))}
             </div>
@@ -226,11 +188,16 @@ ${overviewData.keyFiles.map(kf => `### ${kf.relPath}\n\`\`\`\n${kf.content.slice
       </div>
 
       {/* Input */}
-      {selectedModule && (
-        <div className="mt-4 flex gap-2">
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey}
-            placeholder="提问代码细节... (Shift+Enter 换行)" rows={1}
-            className="flex-1 resize-none rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+      {selectedCourse && (
+        <div className="mt-3 flex gap-2">
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKey}
+            placeholder={currentCourse ? `关于「${currentCourse.title}」提问...` : '输入你的问题...'}
+            rows={1}
+            className="flex-1 resize-none rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+          />
           <button onClick={send} disabled={loading || !input.trim()}
             className="rounded-2xl bg-teal-600 px-6 py-3 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
             发送
@@ -238,5 +205,13 @@ ${overviewData.keyFiles.map(kf => `### ${kf.relPath}\n\`\`\`\n${kf.content.slice
         </div>
       )}
     </div>
+  );
+}
+
+export default function TutorPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64 text-stone-400">加载中...</div>}>
+      <TutorContent />
+    </Suspense>
   );
 }

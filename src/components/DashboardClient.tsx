@@ -244,7 +244,7 @@ function DailySummarySection({ todayDate }: { todayDate: string }) {
       {summary ? (
         <div>
           {generatingIndicator}
-          <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{summary}</p>
+          <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">{summary}</p>
           <Link href={`/daily/${todayDate}`} className="mt-2 inline-block text-xs font-bold text-teal-700 hover:underline">
             查看完整日报 →
           </Link>
