@@ -51,6 +51,10 @@ export async function middleware(req: NextRequest) {
   }
 
   if (!session?.userId) {
+    // API routes → return JSON 401 instead of redirect
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
