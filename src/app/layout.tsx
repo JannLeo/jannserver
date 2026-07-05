@@ -23,8 +23,8 @@ export const metadata: Metadata = {
     'apple-mobile-web-app-status-bar-style': 'default',
   },
   icons: {
-    icon: '/icons/icon-192.svg',
-    apple: '/icons/icon-192.svg',
+    icon: '/icons/icon-192.png',
+    apple: '/icons/icon-192.png',
   },
 };
 

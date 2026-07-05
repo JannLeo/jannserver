@@ -10,6 +10,7 @@ module.exports = {
       interpreter: 'none',
       env: {
         NODE_ENV: 'production',
+        ALLOWED_HOSTS: env.ALLOWED_HOSTS || 'localhost,127.0.0.1,phone.jannleo.qzz.io,qzz.io',
         ALLOW_HTTP_COOKIES: env.ALLOW_HTTP_COOKIES || 'true',
         AI_BASE_URL: env.AI_BASE_URL || 'http://127.0.0.1:12345/v1',
         AI_MODEL: env.AI_MODEL || 'MiniMax-M2.7',

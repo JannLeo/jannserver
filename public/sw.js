@@ -15,8 +15,8 @@ const STATIC_ASSETS = [
   '/ask',
   '/wiki',
   '/manifest.json',
-  '/icons/icon-192.svg',
-  '/icons/icon-512.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
 ];
 
 // ─── Install: pre-cache app shell ─────────────────────────────────────────
