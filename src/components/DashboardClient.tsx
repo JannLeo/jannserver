@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 
 interface Task {
@@ -135,46 +135,88 @@ function UsageSection({ summary }: { summary: UsageSummary | null }) {
 }
 
 // ─── Daily Summary Section ───────────────────────────────────────────────────
+const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n## |$)/;
+
+function extractSummary(text: string): string | null {
+  const match = text.match(AI_SUMMARY_RE);
+  if (match) return match[0].replace(/^## AI 总结\n?/, '').trim().slice(0, 300);
+  return null;
+}
+
 function DailySummarySection({ todayDate }: { todayDate: string }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const autoTriggeredRef = useRef(false);
 
   useEffect(() => {
     fetch(`/api/daily/${todayDate}`)
       .then(r => r.json())
       .then(d => {
-        setLoading(false);
-        if (d.rawContent) {
-          // 提取 AI 生成部分
-          const text = d.rawContent;
-          // 找 AI 总结部分
-          const aiMatch = text.match(/## AI 总结[\s\S]*?(?=\n## |$)/);
-          if (aiMatch) { setSummary(aiMatch[0].replace(/^## AI 总结\n?/, '').trim().slice(0, 300)); }
-          else {
-            // 取今日重点
-            const keyMatch = text.match(/## 今日重点[\s\S]*?(?=\n## |$)/);
-            if (keyMatch) { setSummary(keyMatch[0].replace(/^## 今日重点\n?/, '').trim().slice(0, 200)); }
-            else setSummary(text.replace(/^# .*\n/, '').trim().slice(0, 200));
-          }
+        const text = d.content || d.rawContent || '';
+        const extracted = extractSummary(text);
+        if (extracted) {
+          setSummary(extracted);
+          setLoading(false);
         } else {
-          setSummary(null);
+          setLoading(false);
+          // 没有 AI 总结 → 自动生成并保存
+          if (!autoTriggeredRef.current) {
+            autoTriggeredRef.current = true;
+            setGenerating(true);
+            fetch('/api/ai/daily-summary/generate-and-save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ date: todayDate }),
+            })
+              .then(r => r.json())
+              .then(data => {
+                if (data.content) {
+                  const extracted = extractSummary(data.content);
+                  if (extracted) setSummary(extracted);
+                }
+              })
+              .catch(() => {})
+              .finally(() => setGenerating(false));
+          }
         }
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setLoading(false);
+        // 网络错误也自动生成
+        if (!autoTriggeredRef.current) {
+          autoTriggeredRef.current = true;
+          setGenerating(true);
+          fetch('/api/ai/daily-summary/generate-and-save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: todayDate }),
+          })
+            .then(r => r.json())
+            .then(data => {
+              if (data.content) {
+                const extracted = extractSummary(data.content);
+                if (extracted) setSummary(extracted);
+              }
+            })
+            .catch(() => {})
+            .finally(() => setGenerating(false));
+        }
+      });
   }, [todayDate]);
 
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const res = await fetch('/api/ai/daily-summary', {
+      const res = await fetch('/api/ai/daily-summary/generate-and-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: todayDate }),
       });
       const data = await res.json();
-      if (data.ok || data.summary) {
-        setSummary(data.summary || data.content);
+      if (data.content) {
+        const extracted = extractSummary(data.content);
+        if (extracted) setSummary(extracted);
       }
     } catch {}
     setGenerating(false);
@@ -182,10 +224,18 @@ function DailySummarySection({ todayDate }: { todayDate: string }) {
 
   if (loading) return <div className="animate-pulse h-16 bg-stone-100 rounded-2xl" />;
 
+  const generatingIndicator = generating && (
+    <div className="flex items-center gap-2 text-xs text-stone-400 mb-2">
+      <span className="inline-block w-3 h-3 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+      正在生成日总结…
+    </div>
+  );
+
   return (
     <div>
       {summary ? (
         <div>
+          {generatingIndicator}
           <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{summary}</p>
           <Link href={`/daily/${todayDate}`} className="mt-2 inline-block text-xs font-bold text-teal-700 hover:underline">
             查看完整日报 →
