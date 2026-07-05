@@ -1,7 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}
 
 function LogoIcon() {
   return (
@@ -45,15 +50,18 @@ const navItems: [string, string, string, string][] = [
   ['/novel', '✍️', '小说', 'AI 小说创作'],
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
 
-  return (
-    <aside
-      style={{ width: expanded ? 232 : 72, minWidth: expanded ? 232 : 72 }}
-      className="mr-3 hidden flex-shrink-0 flex-col rounded-[1.75rem] border border-stone-900/10 bg-[#173f3c] p-3 text-stone-100 shadow-[0_30px_80px_rgba(15,61,58,0.20)] transition-all duration-300 sm:flex lg:mr-4"
-    >
+  // Close on route change (mobile)
+  useEffect(() => {
+    if (mobileOpen) onMobileClose?.();
+  }, [pathname]);
+
+  const sidebarContent = (
+    <>
+      {/* Logo header */}
       <div className={'flex h-14 flex-shrink-0 items-center rounded-2xl border border-white/10 bg-white/[0.07] ' + (expanded ? 'gap-3 px-3' : 'justify-center px-0')}>
         <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 text-[#173f3c] shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
           <LogoIcon />
@@ -66,6 +74,7 @@ export default function Sidebar() {
         )}
       </div>
 
+      {/* Nav items */}
       <nav className="mt-4 flex flex-1 flex-col gap-1.5 overflow-y-auto pr-0.5">
         {navItems.map(([href, emoji, label, tooltip]) => {
           const isActive = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
@@ -92,6 +101,7 @@ export default function Sidebar() {
         })}
       </nav>
 
+      {/* Collapse button */}
       <div className="mt-4 flex-shrink-0 border-t border-white/10 pt-3">
         <button
           onClick={() => setExpanded(!expanded)}
@@ -106,6 +116,34 @@ export default function Sidebar() {
           </span>
         </button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile overlay drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-40 sm:hidden">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={onMobileClose}
+          />
+          <aside
+            style={{ width: expanded ? 232 : 72, minWidth: expanded ? 232 : 72 }}
+            className="absolute left-2 top-2 flex h-[calc(100vh-1rem)] flex-shrink-0 flex-col rounded-[1.75rem] border border-stone-900/10 bg-[#173f3c] p-3 text-stone-100 shadow-[0_30px_80px_rgba(15,61,58,0.20)] transition-all duration-300"
+          >
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+
+      {/* Desktop sidebar — always visible */}
+      <aside
+        style={{ width: expanded ? 232 : 72, minWidth: expanded ? 232 : 72 }}
+        className="hidden flex-shrink-0 flex-col rounded-[1.75rem] border border-stone-900/10 bg-[#173f3c] p-3 text-stone-100 shadow-[0_30px_80px_rgba(15,61,58,0.20)] transition-all duration-300 sm:flex lg:mr-4"
+      >
+        {sidebarContent}
+      </aside>
+    </>
   );
 }
