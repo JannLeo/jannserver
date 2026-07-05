@@ -3,6 +3,22 @@ const nextConfig = {
   output: 'standalone',
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3'],
+    turbopack: {},
+  },
+  // Rewrites: SPA fallback for DSA web embedded at /stock/
+  async rewrites() {
+    return [
+      // Proxy: Fincept API -> localhost:18080
+      {
+        source: '/api/v1/fincept/:path*',
+        destination: 'http://localhost:18080/api/v1/fincept/:path*',
+      },
+      // SPA fallback: all /stock/* routes that aren't real files serve index.html
+      {
+        source: '/stock/:path((?!.*\\.\\w+$).*)',
+        destination: '/stock/index.html',
+      },
+    ];
   },
   // Rewrites: SPA fallback for DSA web embedded at /stock/
   async rewrites() {
