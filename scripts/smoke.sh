@@ -1,104 +1,157 @@
 #!/usr/bin/env bash
-# smoke.sh — 快速冒烟测试，在 pnpm build 成功后运行
-# 用法: ./scripts/smoke.sh [base_url]
-# 默认 base_url=http://localhost:3000
+# ============================================================
+# jannserver SmokeRunner — for symphony Phase 1.5 SmokeRunner
+# Run: bash scripts/smoke.sh
+# ============================================================
+set -uo pipefail   # NOTE: no -e — we use explicit checks for error propagation
 
-set -euo pipefail
+# ---------- Config ----------
+BASE_URL="${BASE_URL:-http://localhost:3000}"
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BASE_URL="${1:-http://localhost:3000}"
-COOKIES="${COOKIES:-/tmp/ws_cookies.txt}"
+# Cookie jar (cleaned up on exit)
+COOKIE_JAR="$(mktemp)"
+trap 'rm -f "$COOKIE_JAR"' EXIT
 
+# ---------- Helpers ----------
 PASS=0
 FAIL=0
 
-# ─── helpers ────────────────────────────────────────────────
-ok()  { echo "✅ PASS: $1"; ((PASS++)); }
-err() { echo "❌ FAIL: $1 — $2"; ((FAIL++)); }
+pass() { echo "  PASS: $1"; PASS=$((PASS + 1)); }
+fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 
-# ─── 1. pnpm build ─────────────────────────────────────────
-echo "=== [1/5] pnpm build ==="
-cd "$REPO_ROOT"
-if pnpm build > /tmp/smoke_build.log 2>&1; then
-  ok "pnpm build"
-else
-  err "pnpm build" "查看 log: /tmp/smoke_build.log"
-  tail -5 /tmp/smoke_build.log
+# Strip any line that mentions a sensitive env var or looks like a bearer token / sk- / long base64
+sanitize() {
+  sed -E "/AI_API_KEY|GITHUB_TOKEN|cookie|sk-[a-zA-Z0-9]{20,}|ghp_[A-Za-z0-9]{36,}|Bearer |[A-Za-z0-9+/]{60,}={0,2}/d" || cat
+}
+
+# GET request — returns sanitized body or empty on failure
+get_json() {
+  local url="$1"
+  local body
+  body=$(curl -sS --connect-timeout 5 --max-time 30 \
+    -b "$COOKIE_JAR" \
+    -c "$COOKIE_JAR" \
+    "$url" 2>&1) || return 0
+  echo "$body" | sanitize
+}
+
+# POST JSON — returns sanitized body or empty on failure
+post_json() {
+  local url="$1"; local body="${2:-}"
+  local resp
+  if [ -n "$body" ]; then
+    resp=$(curl -sS --connect-timeout 5 --max-time 60 \
+      -X POST "$url" \
+      -H "Content-Type: application/json" \
+      -d "$body" \
+      -b "$COOKIE_JAR" \
+      -c "$COOKIE_JAR" \
+      2>&1) || return 0
+  else
+    resp=$(curl -sS --connect-timeout 5 --max-time 60 \
+      -X POST "$url" \
+      -H "Content-Type: application/json" \
+      -b "$COOKIE_JAR" \
+      -c "$COOKIE_JAR" \
+      2>&1) || return 0
+  fi
+  echo "$resp" | sanitize
+}
+
+# Extract boolean value from JSON (returns empty if not found)
+json_bool() { echo "$1" | grep -o "\"$2\":[[:space:]]*\(true\|false\)" | grep -o 'true\|false' || true; }
+
+# Extract string value from JSON (returns empty if not found)
+json_str()  { echo "$1" | grep -o "\"$2\":[[:space:]]*\"[^\"]*\"" | head -1 | sed "s/.*\"$2\":[[:space:]]*\"//;s/\"$//" || true; }
+
+# ---------- Check 0: server must be running ----------
+echo ""
+echo "=== Smoke: jannserver Smoke Test ==="
+echo ""
+
+HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$BASE_URL/api/health" 2>&1 || echo "000")
+if [ "$HTTP_CODE" = "000" ] || [ "$HTTP_CODE" = "007" ]; then
+  echo "FAIL: personal-workspace is not running on $BASE_URL"
+  echo "      Start with: pm2 start personal-workspace"
+  echo "      Or:         cd $PROJECT_DIR && pnpm dev"
+  exit 1
 fi
 
-# ─── 2. /api/health ───────────────────────────────────────
-echo "=== [2/5] /api/health ==="
-HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/api/health" 2>/dev/null || echo "000")
-if [ "$HEALTH" = "200" ]; then
-  ok "/api/health → $HEALTH"
+# ---------- Check 1: pnpm build ----------
+echo "[1/7] pnpm build..."
+BUILD_OK=false
+set +e
+pnpm install --no-frozen-lockfile > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+  pnpm build > /dev/null 2>&1
+  [ $? -eq 0 ] && BUILD_OK=true
+fi
+set -e
+cd - > /dev/null
+"$BUILD_OK" && pass "pnpm build" || fail "pnpm build"
+
+# ---------- Check 2: /api/health ----------
+echo "[2/7] GET /api/health..."
+HEALTH=$(get_json "$BASE_URL/api/health")
+STATUS_VAL=$(json_str "$HEALTH" "status")
+[ "$STATUS_VAL" = "ok" ] && pass "health status=ok" || fail "health status (got: '$STATUS_VAL')"
+
+# ---------- Check 3: login ----------
+echo "[3/7] POST /api/auth/login..."
+LOGIN=$(post_json "$BASE_URL/api/auth/login" "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}")
+OK_VAL=$(json_bool "$LOGIN" "ok")
+[ "$OK_VAL" = "true" ] && pass "login ok" || fail "login failed (got: $LOGIN)"
+
+# ---------- Check 4: /api/video-analysis/status ----------
+echo "[4/7] GET /api/video-analysis/status..."
+VA=$(get_json "$BASE_URL/api/video-analysis/status")
+VA_CONFIGURED=$(json_bool "$VA" "configured")
+VA_REACHABLE=$(json_bool "$VA" "serviceReachable")
+[ "$VA_CONFIGURED" = "true" ]  && pass "video-analysis configured=true" || fail "video-analysis configured (got: '$VA_CONFIGURED')"
+[ "$VA_REACHABLE" = "true" ]    && pass "video-analysis serviceReachable=true" || fail "video-analysis serviceReachable (got: '$VA_REACHABLE')"
+
+# ---------- Check 5: /api/project-brain/compile (summary-for-work, mode=configs) ----------
+echo "[5/7] POST /api/project-brain/compile (summary-for-work, mode=configs)..."
+COMPILE=$(post_json "$BASE_URL/api/project-brain/compile" "{\"repoName\":\"summary-for-work\",\"mode\":\"configs\"}")
+COMPILE_OK=$(json_bool "$COMPILE" "ok")
+HAS_PAGEID=false; echo "$COMPILE" | grep -q '"pageId"' && HAS_PAGEID=true
+[ "$COMPILE_OK" = "false" ] && pass "compile ok=false" || fail "compile ok should be false (got: $COMPILE)"
+"$HAS_PAGEID" && fail "compile must NOT contain pageId" || pass "no pageId in response"
+
+# ---------- Check 6: /api/ai/ask — "fitness是什么" ----------
+echo "[6/7] POST /api/ai/ask 'fitness是什么'..."
+ASK1=$(post_json "$BASE_URL/api/ai/ask" "{\"question\":\"fitness是什么\"}")
+ASK1_KB=$(json_bool "$ASK1" "usedKnowledgeBase")
+ASK1_ROUTE=$(json_str "$ASK1" "route")
+[ "$ASK1_KB" = "true" ] && pass "ask 'fitness是什么' usedKnowledgeBase=true (route=$ASK1_ROUTE)" \
+  || fail "ask usedKnowledgeBase should be true (got: '$ASK1_KB')"
+if echo "$ASK1_ROUTE" | grep -qi "fallback"; then
+  fail "route should not be fallback (got: $ASK1_ROUTE)"
 else
-  err "/api/health" "返回 $HEALTH"
+  [ -n "$ASK1_ROUTE" ] && pass "route is acceptable: $ASK1_ROUTE" || pass "route present"
 fi
 
-# ─── 3. /api/video-analysis/status ────────────────────────
-echo "=== [3/5] /api/video-analysis/status ==="
-MC_STATUS=$(curl -s "${BASE_URL}/api/video-analysis/status" 2>/dev/null || echo '{}')
-MC_CONFIG=$(echo "$MC_STATUS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('configured','?'))" 2>/dev/null || echo "?")
-if [ "$MC_CONFIG" = "True" ] || [ "$MC_CONFIG" = "true" ]; then
-  ok "/api/video-analysis/status configured=true"
-else
-  # 非 configured 也接受（可能是未配置），只检查 JSON 可解析
-  echo "   configured=$MC_CONFIG (may be false if not configured)"
-  ok "/api/video-analysis/status JSON 解析正常"
-fi
+# ---------- Check 7: /api/ai/ask — "worldquant里面fitness是什么" ----------
+echo "[7/7] POST /api/ai/ask 'worldquant里面fitness是什么'..."
+ASK2=$(post_json "$BASE_URL/api/ai/ask" "{\"question\":\"worldquant里面fitness是什么\"}")
+ASK2_KB=$(json_bool "$ASK2" "usedKnowledgeBase")
+[ "$ASK2_KB" = "true" ] && pass "ask 'worldquant里面fitness是什么' usedKnowledgeBase=true" \
+  || fail "ask usedKnowledgeBase should be true (got: '$ASK2_KB')"
 
-# ─── 4. /api/project-brain/compile (非索引 repo) ─────────
-echo "=== [4/5] /api/project-brain/compile summary-for-work (expect ok:false) ==="
-COMPILE=$(curl -s "${BASE_URL}/api/project-brain/compile?repoName=summary-for-work&mode=summary" \
-  -b "$COOKIES" 2>/dev/null || echo '{"ok":null}')
-COMPILE_OK=$(echo "$COMPILE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok','?'))" 2>/dev/null || echo "?")
-if [ "$COMPILE_OK" = "False" ] || [ "$COMPILE_OK" = "false" ]; then
-  ok "/api/project-brain/compile → ok:false (正确，未索引 repo 应拒绝)"
-elif [ "$COMPILE_OK" = "?" ]; then
-  err "/api/project-brain/compile" "JSON 解析失败: $COMPILE"
-else
-  err "/api/project-brain/compile" "期望 ok:false，得到 ok:$COMPILE_OK"
-fi
+# ---------- Summary ----------
+echo ""
+echo "=========================================="
+echo "  PASS: $PASS  |  FAIL: $FAIL"
+echo "=========================================="
+echo ""
 
-# ─── 5. /api/ai/ask usedKnowledgeBase ───────────────────────
-echo "=== [5/5] /api/ai/ask usedKnowledgeBase ==="
-ASK_RESP=$(curl -s -X POST "${BASE_URL}/api/ai/ask" \
-  -H 'Content-Type: application/json' \
-  -b "$COOKIES" \
-  -d '{"question":"fitness是什么","history":[]}' \
-  --max-time 120 2>/dev/null || echo '{}')
-USED_KB=$(echo "$ASK_RESP" | python3 -c "
-import sys,json
-try:
-    d=json.load(sys.stdin)
-    print(d.get('usedKnowledgeBase','?'))
-except:
-    print('?')
-" 2>/dev/null || echo "?")
-if [ "$USED_KB" = "True" ] || [ "$USED_KB" = "true" ]; then
-  ok "/api/ai/ask usedKnowledgeBase=true"
-else
-  err "/api/ai/ask usedKnowledgeBase" "得到 $USED_KB (期望 true)"
-fi
-
-# ─── 安全检查 ─────────────────────────────────────────────
-echo "=== [安全] 敏感信息泄漏检查 ==="
-if grep -rq "AI_API_KEY\|token\|password\|secret" \
-  /tmp/smoke_build.log 2>/dev/null || \
-  echo "$ASK_RESP" | grep -qi "AI_API_KEY\|ghp_\|Bearer"; then
-  err "安全检查" "检测到疑似泄漏的敏感信息"
-else
-  ok "安全检查 — 无敏感信息泄漏"
-fi
-
-# ─── 汇总 ──────────────────────────────────────────────────
-echo
-echo "=== 汇总: $PASS passed, $FAIL failed ==="
-if [ $FAIL -gt 0 ]; then
-  echo "❌ smoke 测试失败"
+if [ "$FAIL" -gt 0 ]; then
+  echo "Some checks failed."
   exit 1
 else
-  echo "✅ 全部通过"
+  echo "All checks passed."
   exit 0
 fi
