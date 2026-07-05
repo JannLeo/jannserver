@@ -4,14 +4,46 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 interface TrendingRepo {
-  name: string;       // "owner/repo"
-  href: string;       // "/owner/repo"
+  name: string;
+  href: string;
   description: string;
   language: string;
   languageColor: string;
-  stars: string;      // "1,234"
-  todayStars: string; // "+123"
-  forks?: string;     // forks count
+  stars: string;
+  todayStars: string;
+  forks?: string;
+}
+
+const translateCache = new Map<string, string>();
+
+interface MyMemoryResponse {
+  responseData: { translatedText: string };
+  responseStatus: number;
+}
+
+function isEnglish(text: string): boolean {
+  if (!text || text.length < 10) return false;
+  if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(text)) return false;
+  return true;
+}
+
+async function translateText(text: string): Promise<string> {
+  if (translateCache.has(text)) return translateCache.get(text)!;
+  try {
+    const res = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 500))}&langpair=en|zh-CN`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (res.ok) {
+      const data: MyMemoryResponse = await res.json();
+      if (data.responseStatus === 200 && data.responseData?.translatedText) {
+        const t = data.responseData.translatedText;
+        translateCache.set(text, t);
+        return t;
+      }
+    }
+  } catch {}
+  return text;
 }
 
 async function fetchGitHubTrending(since: string): Promise<TrendingRepo[]> {
@@ -71,8 +103,19 @@ export async function GET(req: NextRequest) {
 
   try {
     const repos = await fetchGitHubTrending(since);
+
+    // Translate descriptions to Chinese
+    const translatedRepos = await Promise.all(
+      repos.map(async (repo) => ({
+        ...repo,
+        description: isEnglish(repo.description)
+          ? await translateText(repo.description)
+          : repo.description,
+      }))
+    );
+
     return NextResponse.json({
-      repos,
+      repos: translatedRepos,
       since,
       fetchedAt: new Date().toISOString(),
     });

@@ -199,10 +199,90 @@ function deduplicate(items: NewsItem[]): NewsItem[] {
   });
 }
 
+// ─── Translation ──────────────────────────────────────────────────────────────
+
+const LANG_RE = /^[\x20-\x7E\s,.;:!?()'"\-–—…]+$/; // pure ASCII + common punctuation
+const MIN_TITLE_LEN = 6;
+
+// In-memory cache: text -> translated
+const translateCache = new Map<string, string>();
+
+interface MyMemoryResponse {
+  responseData: { translatedText: string };
+  responseStatus: number;
+  responseDetails: string;
+}
+
+/**
+ * Check if text is mostly English (non-CJK, no Chinese chars).
+ */
+function isEnglish(text: string): boolean {
+  if (!text || text.length < MIN_TITLE_LEN) return false;
+  // If it contains any CJK character, it's already Chinese
+  if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(text)) return false;
+  // Count non-ASCII chars — if >10% non-ASCII, might be mixed
+  const ascii = text.replace(/[\x20-\x7E]/g, '').length;
+  return ascii < text.length * 0.3;
+}
+
+/**
+ * Translate a single text via MyMemory API.
+ */
+async function translateText(text: string): Promise<string> {
+  const cached = translateCache.get(text);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 500))}&langpair=en|zh-CN`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) return text;
+    const data: MyMemoryResponse = await res.json();
+    if (data.responseStatus === 200 && data.responseData?.translatedText) {
+      const translated = data.responseData.translatedText;
+      translateCache.set(text, translated);
+      return translated;
+    }
+  } catch {
+    // fallback to original
+  }
+  return text;
+}
+
+/**
+ * Translate all items: title + description in parallel, rate-limited.
+ */
+async function translateItems(items: NewsItem[]): Promise<NewsItem[]> {
+  const results: NewsItem[] = [];
+
+  // Process in batches of 5 to avoid rate limiting
+  for (let i = 0; i < items.length; i += 5) {
+    const batch = items.slice(i, i + 5);
+    const batchResults = await Promise.all(
+      batch.map(async (item) => {
+        const [newTitle, newDesc] = await Promise.all([
+          isEnglish(item.title) ? translateText(item.title) : item.title,
+          isEnglish(item.description) ? translateText(item.description.slice(0, 300)) : item.description,
+        ]);
+        return { ...item, title: newTitle, description: newDesc };
+      })
+    );
+    results.push(...batchResults);
+    // Small delay between batches to avoid rate limits
+    if (i + 5 < items.length) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  return results;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const category = url.searchParams.get('category');
   const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '30', 10), 100);
+  const shouldTranslate = url.searchParams.get('translate') !== 'false'; // default true
 
   const selectedFeeds = category
     ? FEEDS.filter((f) => f.category === category)
@@ -225,6 +305,12 @@ export async function GET(req: Request) {
   });
 
   items = items.slice(0, limit);
+
+  // Auto-translate English news to Chinese
+  if (shouldTranslate) {
+    const translated = await translateItems(items);
+    items = translated;
+  }
 
   return Response.json({
     items,
