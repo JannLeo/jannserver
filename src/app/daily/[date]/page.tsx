@@ -57,12 +57,7 @@ export default function DailyPage() {
         return;
       }
       if (data.markdown) {
-        setContent(prev => {
-          if (prev.trim()) {
-            return prev + '\n\n---\n\n' + data.markdown;
-          }
-          return data.markdown;
-        });
+        setContent(data.markdown);
       }
       if (data.suggestedTasks?.length > 0) {
         setSuggestedTasks(data.suggestedTasks);
