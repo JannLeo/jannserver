@@ -1,4 +1,3 @@
-import { load } from 'cheerio';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -54,44 +53,67 @@ async function fetchGitHubTrending(since: string): Promise<TrendingRepo[]> {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
       'Accept-Language': 'en-US,en;q=0.9',
     },
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!res.ok) throw new Error(`GitHub trending fetch failed: ${res.status}`);
 
   const html = await res.text();
-  const $ = load(html);
-
   const repos: TrendingRepo[] = [];
 
-  $('article').each((_, el) => {
-    const $el = $(el);
+  // Each repo is inside <article class="Box-row">...</article>
+  const articleRegex = /<article\b[^>]*class="[^"]*\bBox-row\b[^"]*"[^>]*>([\s\S]*?)<\/article>/gi;
 
-    // repo full name and href
-    const h2 = $el.find('h2');
-    const nameLink = h2.find('a');
-    let name = nameLink.find('span').text().trim();
-    if (!name) name = nameLink.text().trim();
-    name = name.replace(/^\s+|\s+$/g, '').replace(/\s+/g, ' ');
-    const href = nameLink.attr('href') ?? '';
+  let articleMatch: RegExpExecArray | null;
+  while ((articleMatch = articleRegex.exec(html)) !== null) {
+    const block = articleMatch[1];
 
-    // description
-    const desc = $el.find('p').first().text().trim().replace(/\s+/g, ' ');
+    // Extract name & href from <h2> block
+    const h2Match = /<h2[^>]*>([\s\S]*?)<\/h2>/i.exec(block);
+    let name = '';
+    let href = '';
+    if (h2Match) {
+      const h2Content = h2Match[1];
+      // Find the repo link (first a with href starting with /)
+      const linkMatch = /<a\b[^>]*href="(\/[^"?#\s]+)"[^>]*>([\s\S]*?)<\/a>/i.exec(h2Content);
+      if (linkMatch) {
+        href = linkMatch[1];
+        // Get ALL text content from the link, stripping all tags
+        const inner = linkMatch[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+        // Clean up spaces around slash
+        name = inner.replace(/ \/ /g, '/').replace(/\/ /g, '/').replace(/ \//g, '/');
+      }
+    }
+
+    if (!name) continue;
+
+    // description: first <p> inside article
+    const pMatch = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(block);
+    const description = pMatch
+      ? pMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      : '';
 
     // language
-    const langSpan = $el.find('[itemprop="programmingLanguage"]');
-    const language = langSpan.text().trim() || '';
-    const languageColor = langSpan.attr('style')?.match(/color:\s*(#[a-f0-9]+)/i)?.[1] ?? '#6e7681';
+    const langMatch = /<span[^>]*itemprop="programmingLanguage"[^>]*>([\s\S]*?)<\/span>/i.exec(block);
+    const language = langMatch ? langMatch[1].trim() : '';
+    const colorMatch = /<span[^>]*itemprop="programmingLanguage"[^>]*style="color:\s*(#[a-f0-9]+)"/i.exec(block);
+    const languageColor = colorMatch ? colorMatch[1] : '#6e7681';
 
     // stars
-    const starsLink = $el.find('a[href*="/stargazers/"]').first();
-    const stars = starsLink.text().trim().replace(/\s+/g, ' ');
+    const starsMatch = /<a[^>]+href="[^"]*\/stargazers\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+    const stars = starsMatch
+      ? starsMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      : '';
 
     // today's stars
-    const todayEl = $el.find('.float-sm-right').first();
-    const todayStars = todayEl.text().trim().replace(/\s+/g, ' ');
+    const todayMatch = /class="[^"]*float-sm-right[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i.exec(block) ||
+      /class="[^"]*d-inline-block[^"]*"[^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>/i.exec(block);
+    const todayStars = todayMatch
+      ? todayMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      : '';
 
-    repos.push({ name, href, description: desc, language, languageColor, stars, todayStars });
-  });
+    repos.push({ name, href, description, language, languageColor, stars, todayStars });
+  }
 
   return repos;
 }

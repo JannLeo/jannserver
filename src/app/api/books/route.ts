@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { proxyFetch } from '@/lib/proxy-fetch';
 import { db, initDb } from '@/lib/db/index';
 import { books } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -35,7 +36,6 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get('type') ?? 'title';
 
   if (!q.trim()) {
-    // Return all library books
     initDb();
     const all = db.select().from(books).all();
     return NextResponse.json({ results: [], library: all });
@@ -43,21 +43,14 @@ export async function GET(req: NextRequest) {
 
   const query = encodeURIComponent(q.trim());
   const limit = 20;
-  const base = type === 'isbn'
+  const url = type === 'isbn'
     ? `https://openlibrary.org/search.json?isbn=${query}&limit=${limit}`
     : `https://openlibrary.org/search.json?q=${query}&limit=${limit}`;
 
   try {
-    const res = await fetch(base, {
-      headers: { 'Accept': 'application/json' },
-    });
-    if (!res.ok) throw new Error(`Open Library error: ${res.status}`);
-
-    const data = await res.json();
-    const docs: OpenLibraryDoc[] = data.docs ?? [];
-
-    const results = docs.slice(0, limit).map((doc) => ({
-      key: doc.key?.replace('/works/', ''), // remove /works/ prefix
+    const data = await proxyFetch(url) as { docs?: OpenLibraryDoc[] };
+    const results = (data.docs ?? []).slice(0, limit).map((doc) => ({
+      key: doc.key?.replace('/works/', ''),
       openlibraryKey: doc.key,
       title: doc.title,
       author: (doc.author_name ?? []).join(', '),
@@ -71,7 +64,6 @@ export async function GET(req: NextRequest) {
       language: (doc.language ?? ['en'])[0],
     }));
 
-    // Also return what's already in the library
     initDb();
     const library = db.select().from(books).all();
 
@@ -88,25 +80,24 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   initDb();
   const body = await req.json();
-  const { id: existingId, title, author, isbn, coverUrl, epubUrl, description, language, totalPages, source } = body;
+  const { id: existingId, title, author, isbn, coverUrl: coverUrl2, epubUrl, description, language, totalPages, source } = body;
 
   if (!title) return NextResponse.json({ error: '标题必填' }, { status: 400 });
 
   const id = existingId ?? (isbn?.[0] ? `isbn:${isbn}` : uuidv4());
   const now = new Date().toISOString();
 
-  // Upsert
   const existing = db.select().from(books).where(eq(books.id, id)).get();
   if (existing) {
     db.update(books).set({
-      title, author, isbn, coverUrl, epubUrl, description, language,
+      title, author, isbn, coverUrl: coverUrl2, epubUrl, description, language,
       updatedAt: now,
     }).where(eq(books.id, id)).run();
   } else {
     db.insert(books).values({
       id, title, author: author ?? '',
       isbn: isbn ?? null,
-      coverUrl: coverUrl ?? '',
+      coverUrl: coverUrl2 ?? '',
       epubUrl: epubUrl ?? '',
       description: description ?? '',
       language: language ?? 'en',

@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { getIronSession } from 'iron-session';
+import { proxyFetchText } from '@/lib/proxy-fetch';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,22 +121,7 @@ const TIMEOUT_MS = 8000;
 
 async function fetchFeed(feed: { name: string; url: string; category: string; lang: string }): Promise<NewsItem[]> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    const res = await fetch(feed.url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; JannWorkspace/1.0)',
-        Accept: 'application/rss+xml, application/xml, text/xml, */*',
-      },
-    });
-
-    clearTimeout(timeout);
-
-    if (!res.ok) return [];
-
-    const xml = await res.text();
+    const xml = await proxyFetchText(feed.url, TIMEOUT_MS);
     const parsed = parser.parse(xml);
 
     // RSS 2.0

@@ -117,8 +117,8 @@ function MarketTab() {
       const price = parseFloat(info.price || info.close || 0);
       const prev = parseFloat(info.pre_close || info.previousClose || price);
       const chg = price - prev;
-      setData(prev => ({
-        ...prev,
+      setData(prevState => ({
+        ...prevState,
         [symbol]: {
           symbol,
           name: info.name || info.name_cn || symbol,

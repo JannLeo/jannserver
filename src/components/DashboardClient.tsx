@@ -122,13 +122,21 @@ function UsageSection({ summary }: { summary: UsageSummary | null }) {
     return n >= 1 ? `¥${n.toFixed(2)}` : `¥${(n * 100).toFixed(2)}¢`;
   };
 
+  const fmtBalance = (b: number) => {
+    if (b >= 1_000_000_000) return `¥${(b / 1_000_000_000).toFixed(2)}亿`;
+    if (b >= 10_000) return `¥${(b / 10_000).toFixed(2)}万`;
+    return `¥${b.toFixed(2)}`;
+  };
+
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3 text-xs text-stone-500">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500">
         <span>今日 <strong className="text-stone-800">{summary.requestCountToday ?? '-'} 请求</strong></span>
         <span>花费 <strong className="text-stone-800">{f(summary.usedToday)}</strong></span>
         <span>Token <strong className="text-stone-800">{(summary.tokenCountToday || 0).toLocaleString()}</strong></span>
-        {summary.balance != null && <span>余额 <strong className="text-emerald-700">¥{summary.balance.toFixed(2)}</strong></span>}
+        {summary.balance != null && (
+          <span className="flex-shrink-0">余额 <strong className="text-emerald-700">{fmtBalance(summary.balance)}</strong></span>
+        )}
       </div>
     </div>
   );
@@ -353,29 +361,9 @@ const quickCreateItems = [
       {/* 背景装饰 */}
       <div className="pointer-events-none absolute right-8 top-8 hidden h-48 w-48 rounded-full bg-teal-300/20 blur-3xl lg:block" />
 
-      {/* ====== 顶部横幅 ====== */}
-      <section className="surface-card relative overflow-hidden rounded-[2rem] p-5 sm:p-7 lg:p-8">
-        <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-amber-300/28 blur-2xl" />
-        <div className="relative flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="section-kicker">{todayDate}</p>
-            <h1 className="mt-2 text-3xl font-black leading-[0.98] tracking-[-0.06em] text-stone-950 sm:text-4xl lg:text-5xl">
-              {greeting}，<span className="text-teal-700">把今天的系统跑顺。</span>
-            </h1>
-            <p className="mt-4 text-sm text-stone-600 font-semibold">
-              今日待办 <span className="text-teal-700">{todoTasks.length + inProgressTasks.length}</span> · 已完成 <span className="text-emerald-700">{doneTasks.length}</span> · 代码热度 <span className="text-stone-900">{totalCommitsToday}</span> 次提交
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/tasks" className="px-4 py-2 rounded-full border border-stone-200 bg-white/50 text-xs font-bold text-stone-600 hover:border-teal-400 hover:text-teal-700 transition">全部任务 →</Link>
-            <Link href="/notes/new" className="px-4 py-2 rounded-full bg-teal-700 text-white text-xs font-bold hover:bg-teal-800 transition">✍️ 新笔记</Link>
-          </div>
-        </div>
-      </section>
-
-{/* 📰 新闻快讯 */}
+{/* 📰 新闻快讯（最上方） */}
       {newsItems.length > 0 && (
-        <section className="surface-card mt-5 overflow-hidden rounded-[1.75rem]">
+        <section className="surface-card overflow-hidden rounded-[1.75rem]">
           <div className="flex items-center justify-between border-b border-stone-900/10 px-5 py-3.5 sm:px-6">
             <div className="flex items-center gap-2">
               <span className="rounded-lg bg-blue-100 px-2 py-1 text-[11px] font-black text-blue-700">📰 快讯</span>
@@ -402,7 +390,27 @@ const quickCreateItems = [
         </section>
       )}
 
-      {/* ====== 四宫格 ====== */}
+      {/* ====== 顶部横幅 ====== */}
+      <section className="surface-card relative overflow-hidden rounded-[2rem] p-5 sm:p-7 lg:p-8">
+        <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-amber-300/28 blur-2xl" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="section-kicker">{todayDate}</p>
+            <h1 className="mt-2 text-3xl font-black leading-[0.98] tracking-[-0.06em] text-stone-950 sm:text-4xl lg:text-5xl">
+              {greeting}，<span className="text-teal-700">把今天的系统跑顺。</span>
+            </h1>
+            <p className="mt-4 text-sm text-stone-600 font-semibold">
+              今日待办 <span className="text-teal-700">{todoTasks.length + inProgressTasks.length}</span> · 已完成 <span className="text-emerald-700">{doneTasks.length}</span> · 代码热度 <span className="text-stone-900">{totalCommitsToday}</span> 次提交
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Link href="/tasks" className="px-4 py-2 rounded-full border border-stone-200 bg-white/50 text-xs font-bold text-stone-600 hover:border-teal-400 hover:text-teal-700 transition">全部任务 →</Link>
+            <Link href="/notes/new" className="px-4 py-2 rounded-full bg-teal-700 text-white text-xs font-bold hover:bg-teal-800 transition">✍️ 新笔记</Link>
+          </div>
+        </div>
+      </section>
+
+{/* ====== 四宫格 ====== */}
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
 
         {/* ── 左列：今日任务 ── */}
