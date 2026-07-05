@@ -4,6 +4,16 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3'],
   },
+  // Rewrites: SPA fallback for DSA web embedded at /stock/
+  async rewrites() {
+    return [
+      // SPA fallback: all /stock/* routes that aren't real files serve index.html
+      {
+        source: '/stock/:path((?!.*\\.\\w+$).*)',
+        destination: '/stock/index.html',
+      },
+    ];
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Force better-sqlite3 to be external (not bundled)
