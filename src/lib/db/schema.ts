@@ -392,6 +392,75 @@ export const novelVolumes = sqliteTable("novel_volumes", {
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
+// ─── Self-Study / Courses ─────────────────────────────────────────────────────
+export const courses = sqliteTable("courses", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  category: text("category").notNull().default(""),         // programming / ml / web / linux / math / other
+  difficulty: text("difficulty").notNull().default("beginner"), // beginner / intermediate / advanced
+  icon: text("icon").notNull().default("📚"),
+  color: text("color").notNull().default("#3b82f6"),
+  isBuiltIn: integer("is_built_in", { mode: "boolean" }).notNull().default(true),
+  order: integer("order").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const courseModules = sqliteTable("course_modules", {
+  id: text("id").primaryKey(),
+  courseId: text("course_id").notNull().references(() => courses.id),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  contentType: text("content_type").notNull().default("markdown"), // markdown / video / quiz / interactive
+  content: text("content").notNull().default(""),           // 正文或外部链接
+  estimatedMinutes: integer("estimated_minutes").notNull().default(15),
+  order: integer("order").notNull().default(0),
+  prerequisitesJson: text("prerequisites_json").notNull().default("[]"), // [module_id, ...]
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const learningProgress = sqliteTable("learning_progress", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().default("default"),
+  courseId: text("course_id").notNull().references(() => courses.id),
+  moduleId: text("module_id").notNull().references(() => courseModules.id),
+  status: text("status").notNull().default("not_started"), // not_started / in_progress / completed
+  masteryScore: real("mastery_score").notNull().default(0), // 0.0 ~ 1.0
+  attempts: integer("attempts").notNull().default(0),
+  timeSpentMinutes: integer("time_spent_minutes").notNull().default(0),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const flashcards = sqliteTable("flashcards", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().default("default"),
+  courseId: text("course_id").references(() => courses.id),
+  moduleId: text("module_id").references(() => courseModules.id),
+  front: text("front").notNull(),        // 问题/概念
+  back: text("back").notNull(),           // 答案/解释
+  tags: text("tags").notNull().default(""),
+  source: text("source").notNull().default("manual"), // manual / course_gen / quiz / ai
+  easeFactor: real("ease_factor").notNull().default(2.5),  // SM-2 algorithm
+  interval: integer("interval").notNull().default(0),       // 复习间隔(天)
+  repetitions: integer("repetitions").notNull().default(0), // 成功复习次数
+  nextReviewAt: text("next_review_at").notNull().default(""), // ISO date
+  dueDate: text("due_date"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const flashcardReviews = sqliteTable("flashcard_reviews", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  flashcardId: text("flashcard_id").notNull().references(() => flashcards.id),
+  quality: integer("quality").notNull(), // 0=blackout, 1=forgot, 2=hard, 3=ok, 4=easy, 5=perfect
+  responseTimeMs: integer("response_time_ms").notNull().default(0),
+  reviewedAt: text("reviewed_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
 // ─── Books / Reading ──────────────────────────────────────────────────────────
 export const books = sqliteTable("books", {
   id: text("id").primaryKey(),

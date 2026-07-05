@@ -35,9 +35,10 @@ const ICONS: Record<string, React.ReactNode> = {
   '📰': <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6z"/></svg>,
   '🔥': <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/></svg>,
   '📘': <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>,
+  '🎯': <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>,
 };
 
-// 子菜单配置：key -> { parent: 父label, children: [href, emoji, label, tooltip][] }
+// 子菜单配置：key -> { emoji, label, tooltip, children }
 const SUB_MENUS: Record<string, { emoji: string; label: string; tooltip: string; children: [string, string, string, string][] }> = {
   creative: {
     emoji: '📝',
@@ -48,6 +49,17 @@ const SUB_MENUS: Record<string, { emoji: string; label: string; tooltip: string;
       ['/tasks', '✅', '任务', '任务'],
       ['/memos', '💡', '备忘', '备忘录'],
       ['/image-gen', '🎨', '图像生成', 'AI 图像生成'],
+    ],
+  },
+  study: {
+    emoji: '🎯',
+    label: '自学',
+    tooltip: '学习仪表盘·课程·AI导师·闪卡',
+    children: [
+      ['/self-study', '📊', '学习仪表盘', '学习仪表盘'],
+      ['/self-study/courses', '📚', '课程', '全部课程'],
+      ['/self-study/tutor', '🤖', 'AI 导师', 'AI 学习问答'],
+      ['/self-study/flashcards', '🃏', '闪卡', '间隔重复记忆'],
     ],
   },
 };
@@ -72,7 +84,7 @@ const navItems: [string, string, string, string][] = [
 export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
-  const [openSubMenu, setOpenSubMenu] = useState<string | null>('creative');
+  const [openSubMenu, setOpenSubMenu] = useState<string | null>('study');
 
   // Close on route change (mobile)
   useEffect(() => {
@@ -114,7 +126,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
   const renderSubMenu = (key: string, config: typeof SUB_MENUS[string]) => {
     const isOpen = openSubMenu === key;
     const hasActiveChild = isSubMenuActive(config.children);
-    const isParentActive = ['/notes', '/tasks', '/memos', '/image-gen'].includes(pathname);
+    const isParentActive = ['/notes', '/tasks', '/memos', '/image-gen', '/self-study', '/self-study/courses', '/self-study/tutor', '/self-study/flashcards'].includes(pathname);
 
     return (
       <div key={key} className="relative">
