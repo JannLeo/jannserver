@@ -1,5 +1,23 @@
 const env = process.env;
 
+// Load secrets from project-external file (NOT in git)
+const fs = require('fs');
+const path = require('path');
+const SECRETS_FILE = '/home/sz/.workspace/secrets.env';
+const secrets = {};
+if (fs.existsSync(SECRETS_FILE)) {
+  const content = fs.readFileSync(SECRETS_FILE, 'utf8');
+  for (const line of content.split('\n')) {
+    const l = line.trim();
+    if (!l || l.startsWith('#')) continue;
+    const idx = l.indexOf('=');
+    if (idx < 0) continue;
+    const key = l.slice(0, idx).trim();
+    const val = l.slice(idx + 1).trim();
+    if (key) secrets[key] = val;
+  }
+}
+
 module.exports = {
   apps: [
     {
@@ -14,16 +32,16 @@ module.exports = {
         ALLOW_HTTP_COOKIES: env.ALLOW_HTTP_COOKIES || 'true',
         AI_BASE_URL: env.AI_BASE_URL || 'http://127.0.0.1:12345/v1',
         AI_MODEL: env.AI_MODEL || 'MiniMax-M2.7',
-        AI_API_KEY: env.AI_API_KEY || '',
+        AI_API_KEY: env.AI_API_KEY || secrets.AI_API_KEY || '',
         MEDIA_CRAWLER_BASE_URL: env.MEDIA_CRAWLER_BASE_URL || 'http://127.0.0.1:8080',
         MEDIA_CRAWLER_ENABLED: env.MEDIA_CRAWLER_ENABLED || 'true',
         OBSIDIAN_VAULT_DIR: env.OBSIDIAN_VAULT_DIR || '/home/sz/workspace/data/obsidian-vault',
         EMBEDDING_MODEL: env.EMBEDDING_MODEL || 'text-embedding-3-small',
         BRAIN_API_URL: env.BRAIN_API_URL || 'https://api.worldquantbrain.com',
-        BRAIN_CREDENTIAL_EMAIL: env.BRAIN_CREDENTIAL_EMAIL || '',
-        BRAIN_CREDENTIAL_PASSWORD: env.BRAIN_CREDENTIAL_PASSWORD || '',
+        BRAIN_CREDENTIAL_EMAIL: env.BRAIN_CREDENTIAL_EMAIL || secrets.BRAIN_CREDENTIAL_EMAIL || '',
+        BRAIN_CREDENTIAL_PASSWORD: env.BRAIN_CREDENTIAL_PASSWORD || secrets.BRAIN_CREDENTIAL_PASSWORD || '',
         AITO_EARN_RELAY_URL: env.AITO_EARN_RELAY_URL || 'http://127.0.0.1:8088/api',
-        AITO_EARN_API_KEY: env.AITO_EARN_API_KEY || '',
+        AITO_EARN_API_KEY: env.AITO_EARN_API_KEY || secrets.AITO_EARN_API_KEY || '',
         PATH: env.PATH || '/home/sz/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       },
       autorestart: true,
