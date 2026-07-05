@@ -63,6 +63,7 @@ module.exports = {
         MEDIA_CRAWLER_HOST: env.MEDIA_CRAWLER_HOST || '127.0.0.1',
         MEDIA_CRAWLER_PORT: env.MEDIA_CRAWLER_PORT || '8080',
         PATH: env.PATH || '/home/sz/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        DISPLAY: ':1',
       },
       autorestart: true,
       max_restarts: 10,

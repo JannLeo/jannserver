@@ -321,7 +321,7 @@ export async function runJob(id: number): Promise<{ ok: boolean; error?: string 
 
     const body: Record<string, any> = {
       platform: mcPlatform,
-      login_type: 'qrcode',
+      login_type: 'cookie',
       crawler_type: job.crawlType === 'creator' ? 'creator' : job.crawlType,
       keywords,
       specified_ids: specifiedIds,
