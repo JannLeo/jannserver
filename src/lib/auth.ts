@@ -53,7 +53,7 @@ export async function checkRateLimit(key: string): Promise<{ allowed: boolean; r
   const cutoff = Math.floor(Date.now() / 1000) - window;
   sqlite.exec(`DELETE FROM login_failures WHERE attempt_at < datetime('now', '-${window} seconds')`);
   const result = sqlite.prepare(
-    "SELECT COUNT(*) as cnt FROM login_failures WHERE username = ? AND attempt_at > datetime('now', '-${window} seconds')"
+    `SELECT COUNT(*) as cnt FROM login_failures WHERE username = ? AND attempt_at > datetime('now', '-${window} seconds')`
   ).get(key) as { cnt: number } | undefined;
   const count = result?.cnt ?? 0;
   return { allowed: count < max, remaining: Math.max(0, max - count) };
