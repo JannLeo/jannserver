@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
 interface Task {
   id: string;
   title: string;
@@ -19,15 +18,13 @@ interface RepoStat {
   documentCount: number;
 }
 
-interface UsageData {
-  configured: boolean;
-  balance?: number | null;
-  usedToday?: number | null;
-  used7d?: number | null;
-  used30d?: number | null;
-  requestCountToday?: number | null;
-  tokenCountToday?: number | null;
-  source?: string;
+interface UsageSummary {
+  balance: number | null;
+  usedToday: number | null;
+  used7d: number | null;
+  used30d: number | null;
+  requestCountToday: number | null;
+  tokenCountToday: number | null;
 }
 
 interface DailySummaryData {
@@ -117,39 +114,22 @@ function getTypeLabel(docType: string): string {
 }
 
 // ─── Usage Section ───────────────────────────────────────────────────────────
-function UsageSection() {
-  const [usage, setUsage] = useState<UsageData | null>(null);
-  const [loading, setLoading] = useState(true);
+function UsageSection({ summary }: { summary: UsageSummary | null }) {
+  if (!summary) return null;
 
-  useEffect(() => {
-    fetch('/api/usage')
-      .then(r => r.json())
-      .then(d => { setUsage(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
-  if (loading) return <div className="animate-pulse h-24 bg-stone-100 rounded-2xl" />;
-  if (!usage?.configured) return null;
-
-  const formatCost = (n: number | null | undefined) => {
+  const f = (n: number | null | undefined) => {
     if (n == null) return '-';
     return n >= 1 ? `¥${n.toFixed(2)}` : `¥${(n * 100).toFixed(2)}¢`;
   };
 
   return (
-    <div>
-      <div className="grid grid-cols-3 gap-2">
-        <StatBadge label="今日" value={formatCost(usage.usedToday)} tone="text-teal-700" />
-        <StatBadge label="7 天" value={formatCost(usage.used7d)} tone="text-amber-700" />
-        <StatBadge label="30 天" value={formatCost(usage.used30d)} tone="text-indigo-700" />
+    <div className="space-y-2">
+      <div className="flex items-center gap-3 text-xs text-stone-500">
+        <span>今日 <strong className="text-stone-800">{summary.requestCountToday ?? '-'} 请求</strong></span>
+        <span>花费 <strong className="text-stone-800">{f(summary.usedToday)}</strong></span>
+        <span>Token <strong className="text-stone-800">{(summary.tokenCountToday || 0).toLocaleString()}</strong></span>
+        {summary.balance != null && <span>余额 <strong className="text-emerald-700">¥{summary.balance.toFixed(2)}</strong></span>}
       </div>
-      {usage.usedToday != null && usage.requestCountToday != null && (
-        <div className="mt-2 flex gap-3 text-[11px] text-stone-500 font-semibold">
-          <span>请求: {usage.requestCountToday} 次</span>
-          <span>Token: {(usage.tokenCountToday || 0).toLocaleString()}</span>
-          {usage.balance != null && <span>余额: ¥{usage.balance.toFixed(2)}</span>}
-        </div>
-      )}
     </div>
   );
 }
@@ -282,7 +262,7 @@ function AskSection({ todayDate }: { todayDate: string }) {
 }
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
-export default function DashboardClient({ data, activity }: { data: DashboardData; activity: ActivityData }) {
+export default function DashboardClient({ data, activity, usageSummary }: { data: DashboardData; activity: ActivityData; usageSummary: UsageSummary | null }) {
   const { todayDate, todayTasks } = data;
   const { totalCommits: totalCommitsToday } = activity;
   const [tasks, setTasks] = useState<Task[]>(todayTasks);
@@ -380,10 +360,10 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="section-kicker">Resource monitor</p>
-                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">6P API 用量</h2>
+                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">用量</h2>
               </div>
             </div>
-            <UsageSection />
+            <UsageSection summary={usageSummary} />
           </section>
 
           {/* AI 日总结 */}

@@ -3,6 +3,7 @@ import { tasks, notes, memos, repoSources, repoDocuments } from '@/lib/db/schema
 import { eq, desc, sql } from 'drizzle-orm';
 import DashboardClient from '@/components/DashboardClient';
 import { getRepoActivity, getTodayLocalDate } from '@/lib/activity';
+import { getNewApiUsage } from '@/lib/newApiUsage';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +63,14 @@ export default async function DashboardPage() {
     activity = { repos: a.repos, totalCommits: a.totalCommits };
   } catch {}
 
+  // 用量数据（服务端拉取，绕过客户端登录鉴权）
+  let usageSummary = null;
+  try {
+    const usageResult = await getNewApiUsage('today');
+    usageSummary = usageResult.summary;
+  } catch {}
+
   return (
-    <DashboardClient data={data} activity={activity} />
+    <DashboardClient data={data} activity={activity} usageSummary={usageSummary} />
   );
 }
