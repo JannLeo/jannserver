@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
-function renderMarkdown(text: string) {
+function renderMarkdown(text: string | null | undefined) {
   if (!text) return '';
   return text
     .split('\n')
@@ -46,12 +46,18 @@ export default function CourseDetailPage() {
         return r.json();
       })
       .then(d => {
-        if (!d) return;
+        if (!d || d.error) {
+          setLoading(false);
+          return;
+        }
         setCourse(d.course);
         setModules(d.modules ?? []);
         setStats(d.stats ?? { total: 0, completed: 0, progress: 0 });
         setLoading(false);
-      }).catch(() => setLoading(false));
+      }).catch((e) => {
+        console.error('Course fetch error:', e);
+        setLoading(false);
+      });
   }, [courseId]);
 
   const updateProgress = async (moduleId: string, status: string) => {
