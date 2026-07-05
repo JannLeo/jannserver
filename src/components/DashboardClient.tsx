@@ -1,7 +1,8 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+// ─── Types ───────────────────────────────────────────────────────────────────
 interface Task {
   id: string;
   title: string;
@@ -11,20 +12,6 @@ interface Task {
   completedAt?: string | null;
 }
 
-interface Note {
-  id: string;
-  title: string;
-  slug: string;
-  updatedAt: string;
-}
-
-interface Memo {
-  id: string;
-  slug: string;
-  excerpt: string;
-  updatedAt: string;
-}
-
 interface RepoStat {
   id: number;
   name: string;
@@ -32,24 +19,26 @@ interface RepoStat {
   documentCount: number;
 }
 
-interface CommitInfo {
-  hash: string;
-  shortHash: string;
-  author: string;
-  date: string;
-  message: string;
-  changedFiles: string[];
-  changedFileCount: number;
+interface UsageData {
+  configured: boolean;
+  balance?: number | null;
+  usedToday?: number | null;
+  used7d?: number | null;
+  used30d?: number | null;
+  requestCountToday?: number | null;
+  tokenCountToday?: number | null;
+  source?: string;
 }
 
-interface RepoActivity {
-  repoId: number;
-  repoName: string;
-  commits: CommitInfo[];
+interface DailySummaryData {
+  configured: boolean;
+  summary?: string;
+  content?: string;
+  error?: string;
 }
 
 interface ActivityData {
-  repos: RepoActivity[];
+  repos: any[];
   totalCommits: number;
 }
 
@@ -57,11 +46,10 @@ interface DashboardData {
   todayDate: string;
   todayTasks: Task[];
   undoneTasks: Task[];
-  recentNotes: Note[];
-  recentMemos: Memo[];
   repos: RepoStat[];
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function getGreeting(hour: number): string {
   if (hour < 6) return '夜深了';
   if (hour < 12) return '早上好';
@@ -70,6 +58,14 @@ function getGreeting(hour: number): string {
   return '晚上好';
 }
 
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ─── Task Item ───────────────────────────────────────────────────────────────
 function TaskItem({ task, onToggle, toggling }: {
   task: Task;
   onToggle: (id: string, status: string) => void;
@@ -82,7 +78,6 @@ function TaskItem({ task, onToggle, toggling }: {
       <button
         onClick={() => onToggle(task.id, task.status)}
         disabled={toggling}
-        aria-label={isDone ? '标记为未完成' : '标记为已完成'}
         className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 transition ${
           isDone
             ? 'border-teal-600 bg-teal-600 text-white'
@@ -95,7 +90,7 @@ function TaskItem({ task, onToggle, toggling }: {
           </svg>
         )}
       </button>
-      <span className={`min-w-0 flex-1 text-sm font-semibold ${isDone ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
+      <span className={`min-w-0 flex-1 text-sm font-bold ${isDone ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
         {task.title}
       </span>
       {isHigh && (
@@ -105,20 +100,190 @@ function TaskItem({ task, onToggle, toggling }: {
   );
 }
 
-function StatCard({ label, value, tone, suffix }: { label: string; value: number | string; tone: string; suffix?: string }) {
+// ─── Stat Badge ──────────────────────────────────────────────────────────────
+function StatBadge({ label, value, tone }: { label: string; value: string | number; tone: string }) {
   return (
-    <div className="surface-card rounded-[1.35rem] p-4">
-      <p className="text-xs font-bold text-stone-500">{label}</p>
-      <div className="mt-3 flex items-end gap-2">
-        <span className={`text-3xl font-black tracking-[-0.06em] ${tone}`}>{value}</span>
-        {suffix && <span className="pb-1 text-xs font-bold text-stone-400">{suffix}</span>}
-      </div>
+    <div className="rounded-2xl bg-white/40 px-4 py-3 border border-stone-200/60">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-stone-500">{label}</p>
+      <p className={`mt-1 text-2xl font-black tracking-[-0.04em] ${tone}`}>{value}</p>
     </div>
   );
 }
 
+// ─── Source Badge ────────────────────────────────────────────────────────────
+function getTypeLabel(docType: string): string {
+  const labels: Record<string, string> = { note: '笔记', memo: '备忘', daily: '日报', github_md: '文档' };
+  return labels[docType] || docType;
+}
+
+// ─── Usage Section ───────────────────────────────────────────────────────────
+function UsageSection() {
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/usage')
+      .then(r => r.json())
+      .then(d => { setUsage(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="animate-pulse h-24 bg-stone-100 rounded-2xl" />;
+  if (!usage?.configured) return null;
+
+  const formatCost = (n: number | null | undefined) => {
+    if (n == null) return '-';
+    return n >= 1 ? `¥${n.toFixed(2)}` : `¥${(n * 100).toFixed(2)}¢`;
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-2">
+        <StatBadge label="今日" value={formatCost(usage.usedToday)} tone="text-teal-700" />
+        <StatBadge label="7 天" value={formatCost(usage.used7d)} tone="text-amber-700" />
+        <StatBadge label="30 天" value={formatCost(usage.used30d)} tone="text-indigo-700" />
+      </div>
+      {usage.usedToday != null && usage.requestCountToday != null && (
+        <div className="mt-2 flex gap-3 text-[11px] text-stone-500 font-semibold">
+          <span>请求: {usage.requestCountToday} 次</span>
+          <span>Token: {(usage.tokenCountToday || 0).toLocaleString()}</span>
+          {usage.balance != null && <span>余额: ¥{usage.balance.toFixed(2)}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Daily Summary Section ───────────────────────────────────────────────────
+function DailySummarySection({ todayDate }: { todayDate: string }) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/daily/${todayDate}`)
+      .then(r => r.json())
+      .then(d => {
+        setLoading(false);
+        if (d.rawContent) {
+          // 提取 AI 生成部分
+          const text = d.rawContent;
+          // 找 AI 总结部分
+          const aiMatch = text.match(/## AI 总结[\s\S]*?(?=\n## |$)/);
+          if (aiMatch) { setSummary(aiMatch[0].replace(/^## AI 总结\n?/, '').trim().slice(0, 300)); }
+          else {
+            // 取今日重点
+            const keyMatch = text.match(/## 今日重点[\s\S]*?(?=\n## |$)/);
+            if (keyMatch) { setSummary(keyMatch[0].replace(/^## 今日重点\n?/, '').trim().slice(0, 200)); }
+            else setSummary(text.replace(/^# .*\n/, '').trim().slice(0, 200));
+          }
+        } else {
+          setSummary(null);
+        }
+      })
+      .catch(() => setLoading(false));
+  }, [todayDate]);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const res = await fetch('/api/ai/daily-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: todayDate }),
+      });
+      const data = await res.json();
+      if (data.ok || data.summary) {
+        setSummary(data.summary || data.content);
+      }
+    } catch {}
+    setGenerating(false);
+  };
+
+  if (loading) return <div className="animate-pulse h-16 bg-stone-100 rounded-2xl" />;
+
+  return (
+    <div>
+      {summary ? (
+        <div>
+          <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{summary}</p>
+          <Link href={`/daily/${todayDate}`} className="mt-2 inline-block text-xs font-bold text-teal-700 hover:underline">
+            查看完整日报 →
+          </Link>
+        </div>
+      ) : (
+        <div className="text-center py-3">
+          <p className="text-sm text-stone-400">今天还没有日总结</p>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="mt-2 px-4 py-1.5 rounded-full bg-teal-700 text-white text-xs font-bold hover:bg-teal-800 disabled:opacity-50"
+          >
+            {generating ? '生成中…' : '🤖 生成日总结'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Ask QA Section ──────────────────────────────────────────────────────────
+function AskSection({ todayDate }: { todayDate: string }) {
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const q = question.trim();
+    if (!q) return;
+    setLoading(true); setError(''); setAnswer('');
+    try {
+      const res = await fetch('/api/ai/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || '请求失败'); return; }
+      setAnswer(data.answer || '无结果');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        <input
+          value={question}
+          onChange={e => setQuestion(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+          placeholder="向知识库提问…"
+          disabled={loading}
+          className="flex-1 px-3 py-2 rounded-xl border border-stone-200 bg-white/60 text-sm focus:outline-none focus:border-teal-500"
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !question.trim()}
+          className="px-3 py-2 rounded-xl bg-teal-700 text-white text-xs font-bold hover:bg-teal-800 disabled:opacity-50"
+        >
+          {loading ? '…' : '提问'}
+        </button>
+      </div>
+      {loading && <p className="mt-2 text-xs text-stone-400 animate-pulse">查询知识库中…</p>}
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      {answer && (
+        <div className="mt-2 p-3 rounded-2xl bg-white/60 border border-stone-200 text-sm text-stone-700 leading-relaxed max-h-40 overflow-y-auto">
+          {answer}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Dashboard ──────────────────────────────────────────────────────────
 export default function DashboardClient({ data, activity }: { data: DashboardData; activity: ActivityData }) {
-  const { todayDate, todayTasks, undoneTasks, recentNotes, recentMemos, repos } = data;
+  const { todayDate, todayTasks } = data;
   const { totalCommits: totalCommitsToday } = activity;
   const [tasks, setTasks] = useState<Task[]>(todayTasks);
   const [toggling, setToggling] = useState<string | null>(null);
@@ -127,95 +292,72 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
   const todoTasks = tasks.filter(t => t.status === 'todo');
   const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
   const doneTasks = tasks.filter(t => t.status === 'done');
-  const todayCompleted = doneTasks.length;
-  const todayTodo = todoTasks.length + inProgressTasks.length;
-  const recentActivityCount = recentNotes.length + recentMemos.length;
 
-  const toggleTask = async (taskId: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'done' ? 'todo' : 'done';
-    setToggling(taskId);
-    setTasks(prev => prev.map(t =>
-      t.id === taskId
-        ? { ...t, status: newStatus, completedAt: newStatus === 'done' ? new Date().toISOString() : null }
-        : t
-    ));
+  const toggleTask = async (id: string, cur: string) => {
+    const ns = cur === 'done' ? 'todo' : 'done';
+    setToggling(id);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: ns, completedAt: ns === 'done' ? new Date().toISOString() : null } : t));
     try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (!res.ok) {
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: currentStatus } : t));
-      }
-    } catch {
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: currentStatus } : t));
-    } finally {
-      setToggling(null);
-    }
+      const res = await fetch(`/api/tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: ns }) });
+      if (!res.ok) setTasks(prev => prev.map(t => t.id === id ? { ...t, status: cur } : t));
+    } catch { setTasks(prev => prev.map(t => t.id === id ? { ...t, status: cur } : t)); }
+    finally { setToggling(null); }
   };
-
-  const quickCreateItems = [
-    { href: '/notes/new', icon: '✍️', label: '新建笔记', hint: '沉淀想法' },
-    { href: '/memos?new=1', icon: '💡', label: '新建备忘', hint: '快速记录' },
-    { href: '/tasks?new=1', icon: '✓', label: '新建任务', hint: '安排下一步' },
-    { href: '/daily', icon: '☀️', label: '今日 Daily', hint: '复盘今天' },
-  ];
 
   return (
     <div className="relative mx-auto min-h-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+      {/* 背景装饰 */}
       <div className="pointer-events-none absolute right-8 top-8 hidden h-48 w-48 rounded-full bg-teal-300/20 blur-3xl lg:block" />
 
+      {/* ====== 顶部横幅 ====== */}
       <section className="surface-card relative overflow-hidden rounded-[2rem] p-5 sm:p-7 lg:p-8">
         <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-amber-300/28 blur-2xl" />
-        <div className="absolute bottom-0 right-0 h-28 w-44 rounded-tl-[4rem] bg-[#173f3c]/8" />
-        <div className="relative grid gap-6 lg:grid-cols-[1fr_360px] lg:items-end">
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="section-kicker">{todayDate}</p>
-            <h1 className="mt-3 max-w-3xl text-4xl font-black leading-[0.98] tracking-[-0.06em] text-stone-950 sm:text-5xl lg:text-6xl">
-              {greeting}，把今天的系统跑顺。
+            <h1 className="mt-2 text-3xl font-black leading-[0.98] tracking-[-0.06em] text-stone-950 sm:text-4xl lg:text-5xl">
+              {greeting}，<span className="text-teal-700">把今天的系统跑顺。</span>
             </h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-stone-600">
-              现在有 <span className="font-black text-[#0f766e]">{todayTodo}</span> 个待办、
-              <span className="font-black text-emerald-700"> {todayCompleted}</span> 个已完成，
-              今日代码活动 <span className="font-black text-stone-900">{totalCommitsToday}</span> 次提交。
+            <p className="mt-4 text-sm text-stone-600 font-semibold">
+              今日待办 <span className="text-teal-700">{todoTasks.length + inProgressTasks.length}</span> · 已完成 <span className="text-emerald-700">{doneTasks.length}</span> · 代码热度 <span className="text-stone-900">{totalCommitsToday}</span> 次提交
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <StatCard label="待办" value={todayTodo} tone="text-[#0f766e]" suffix="项" />
-            <StatCard label="完成" value={todayCompleted} tone="text-emerald-700" suffix="项" />
-            <StatCard label="活动" value={recentActivityCount} tone="text-amber-700" suffix="条" />
+          <div className="flex gap-2">
+            <Link href="/tasks" className="px-4 py-2 rounded-full border border-stone-200 bg-white/50 text-xs font-bold text-stone-600 hover:border-teal-400 hover:text-teal-700 transition">全部任务 →</Link>
+            <Link href="/notes/new" className="px-4 py-2 rounded-full bg-teal-700 text-white text-xs font-bold hover:bg-teal-800 transition">✍️ 新笔记</Link>
           </div>
         </div>
       </section>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+      {/* ====== 四宫格 ====== */}
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+
+        {/* ── 左列：今日任务 ── */}
         <section className="surface-card overflow-hidden rounded-[1.75rem]">
-          <div className="flex items-center justify-between border-b border-stone-900/10 px-5 py-4 sm:px-6">
-            <div>
-              <p className="section-kicker">Focus queue</p>
-              <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">今日任务</h2>
-            </div>
-            <Link href="/tasks" className="rounded-full border border-stone-900/10 bg-white/55 px-3 py-1.5 text-xs font-black text-stone-600 transition hover:border-teal-500/40 hover:text-teal-700">全部任务 →</Link>
+          <div className="border-b border-stone-900/10 px-5 py-4 sm:px-6">
+            <p className="section-kicker">Focus queue</p>
+            <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">今日要干的活</h2>
           </div>
           <div className="p-4 sm:p-5">
             {tasks.length === 0 ? (
               <div className="rounded-[1.5rem] border border-dashed border-stone-300 bg-white/40 py-12 text-center">
                 <p className="text-5xl">🎉</p>
-                <p className="mt-3 text-sm font-bold text-stone-500">今日暂无任务，可以舒服地开新局。</p>
-                <Link href="/tasks?new=1" className="mt-5 inline-flex rounded-full bg-[#173f3c] px-5 py-2.5 text-sm font-black text-amber-50 shadow-lg shadow-teal-900/10 transition hover:-translate-y-0.5">创建任务</Link>
+                <p className="mt-3 text-sm font-bold text-stone-500">今天没事干，休息一下吧。</p>
+                <Link href="/tasks?new=1" className="mt-5 inline-flex rounded-full bg-[#173f3c] px-5 py-2.5 text-sm font-black text-amber-50 shadow-lg shadow-teal-900/10 transition hover:-translate-y-0.5">
+                  安排新任务
+                </Link>
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 {inProgressTasks.length > 0 && (
                   <div>
-                    <h3 className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-amber-700">进行中</h3>
+                    <h3 className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-amber-700">进行中 ({inProgressTasks.length})</h3>
                     <div className="space-y-2">{inProgressTasks.map(t => <TaskItem key={t.id} task={t} onToggle={toggleTask} toggling={toggling === t.id} />)}</div>
                   </div>
                 )}
                 {todoTasks.length > 0 && (
                   <div>
-                    <h3 className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-stone-500">待办</h3>
+                    <h3 className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-stone-500">待办 ({todoTasks.length})</h3>
                     <div className="space-y-2">{todoTasks.map(t => <TaskItem key={t.id} task={t} onToggle={toggleTask} toggling={toggling === t.id} />)}</div>
                   </div>
                 )}
@@ -230,64 +372,43 @@ export default function DashboardClient({ data, activity }: { data: DashboardDat
           </div>
         </section>
 
-        <div className="space-y-6">
+        {/* ── 右列 ── */}
+        <div className="space-y-5">
+
+          {/* API 使用量 */}
           <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
-            <p className="section-kicker">Launch pad</p>
-            <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">快捷操作</h2>
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              {quickCreateItems.map(item => (
-                <Link key={item.href} href={item.href} className="group rounded-[1.35rem] border border-stone-900/10 bg-white/45 p-4 transition hover:-translate-y-0.5 hover:border-teal-500/30 hover:bg-white/80 hover:shadow-lg hover:shadow-stone-900/5">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#173f3c] text-xl font-black text-amber-100 shadow-[0_12px_28px_rgba(15,61,58,0.18)] transition group-hover:rotate-[-3deg] group-hover:scale-105">{item.icon}</div>
-                  <p className="mt-3 text-sm font-black text-stone-900">{item.label}</p>
-                  <p className="mt-1 text-xs font-semibold text-stone-500">{item.hint}</p>
-                </Link>
-              ))}
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="section-kicker">Resource monitor</p>
+                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">6P API 用量</h2>
+              </div>
+            </div>
+            <UsageSection />
+          </section>
+
+          {/* AI 日总结 */}
+          <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="section-kicker">AI summary</p>
+                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">AI 日总结</h2>
+              </div>
+              <Link href={`/daily/${todayDate}`} className="text-xs font-bold text-teal-700 hover:underline">编辑 →</Link>
+            </div>
+            <DailySummarySection todayDate={todayDate} />
+          </section>
+
+          {/* AI 问答 */}
+          <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
+            <div>
+              <p className="section-kicker">Knowledge search</p>
+              <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">AI 问答</h2>
+            </div>
+            <div className="mt-4">
+              <AskSection todayDate={todayDate} />
             </div>
           </section>
 
-          <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="section-kicker">Recent signals</p>
-                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">最近活动</h2>
-              </div>
-              <span className="rounded-full bg-stone-900/5 px-2.5 py-1 text-xs font-black text-stone-500">{recentActivityCount}</span>
-            </div>
-            <div className="mt-5 space-y-2">
-              {recentNotes.length === 0 && recentMemos.length === 0 ? (
-                <p className="rounded-2xl bg-white/45 py-6 text-center text-sm font-semibold text-stone-400">暂无最近活动</p>
-              ) : (
-                <>
-                  {recentNotes.map(n => (
-                    <div key={n.id} className="flex items-center gap-3 rounded-2xl bg-white/45 px-3 py-2.5 text-sm">
-                      <span className="rounded-full bg-teal-50 px-2 py-1 text-[11px] font-black text-teal-700">笔记</span>
-                      <Link href={`/notes/${n.slug}`} className="min-w-0 flex-1 truncate font-bold text-stone-700 hover:text-teal-700 hover:underline">{n.title || '无标题'}</Link>
-                    </div>
-                  ))}
-                  {recentMemos.map(m => (
-                    <div key={m.id} className="flex items-center gap-3 rounded-2xl bg-white/45 px-3 py-2.5 text-sm">
-                      <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-700">备忘</span>
-                      <span className="min-w-0 flex-1 truncate font-bold text-stone-700">{m.excerpt || '无内容'}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-[1.75rem] border border-[#173f3c]/15 bg-[#173f3c] p-5 text-amber-50 shadow-[0_24px_70px_rgba(15,61,58,0.18)] sm:p-6">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-100/60">Knowledge base</p>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-3xl font-black tracking-[-0.06em]">{repos.length}</p>
-                <p className="text-xs font-bold text-teal-100/65">仓库源</p>
-              </div>
-              <div>
-                <p className="text-3xl font-black tracking-[-0.06em]">{undoneTasks.length}</p>
-                <p className="text-xs font-bold text-teal-100/65">未完成任务</p>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
     </div>
