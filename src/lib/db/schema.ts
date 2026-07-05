@@ -417,6 +417,8 @@ export const courseModules = sqliteTable("course_modules", {
   estimatedMinutes: integer("estimated_minutes").notNull().default(15),
   order: integer("order").notNull().default(0),
   prerequisitesJson: text("prerequisites_json").notNull().default("[]"), // [module_id, ...]
+  repoContext: text("repo_context").notNull().default(""), // 仓库名或路径，对应 repo_sources.local_path 或绝对路径
+  repoPath: text("repo_path").notNull().default(""),       // 仓库内子目录，如 src/、drivers/
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
