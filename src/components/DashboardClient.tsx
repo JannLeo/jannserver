@@ -267,6 +267,7 @@ export default function DashboardClient({ data, activity, usageSummary }: { data
   const { totalCommits: totalCommitsToday } = activity;
   const [tasks, setTasks] = useState<Task[]>(todayTasks);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [newsItems, setNewsItems] = useState<{title: string; link: string; source: string; pubDate: string}[]>([]);
 
   const greeting = getGreeting(new Date().getHours());
   const todoTasks = tasks.filter(t => t.status === 'todo');
@@ -284,6 +285,19 @@ export default function DashboardClient({ data, activity, usageSummary }: { data
     finally { setToggling(null); }
   };
 
+const quickCreateItems = [
+    { href: '/notes/new', icon: '✍️', label: '新建笔记', hint: '沉淀想法' },
+    { href: '/memos?new=1', icon: '💡', label: '新建备忘', hint: '快速记录' },
+    { href: '/tasks?new=1', icon: '✓', label: '新建任务', hint: '安排下一步' },
+    { href: '/daily', icon: '☀️', label: '今日 Daily', hint: '复盘今天' },
+  ];
+
+  useEffect(() => {
+    fetch('/api/news?limit=6')
+      .then(r => r.json())
+      .then(d => setNewsItems(d.items ?? []))
+      .catch(() => {});
+  }, []);
   return (
     <div className="relative mx-auto min-h-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
       {/* 背景装饰 */}
@@ -308,6 +322,35 @@ export default function DashboardClient({ data, activity, usageSummary }: { data
           </div>
         </div>
       </section>
+
+{/* 📰 新闻快讯 */}
+      {newsItems.length > 0 && (
+        <section className="surface-card mt-5 overflow-hidden rounded-[1.75rem]">
+          <div className="flex items-center justify-between border-b border-stone-900/10 px-5 py-3.5 sm:px-6">
+            <div className="flex items-center gap-2">
+              <span className="rounded-lg bg-blue-100 px-2 py-1 text-[11px] font-black text-blue-700">📰 快讯</span>
+              <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">全球新闻</h2>
+            </div>
+            <Link href="/news" className="rounded-full border border-stone-900/10 bg-white/55 px-3 py-1 text-xs font-black text-stone-600 transition hover:border-teal-500/40 hover:text-teal-700">更多 →</Link>
+          </div>
+          <div className="flex gap-4 overflow-x-auto p-4 sm:p-5 scrollbar-hide">
+            {newsItems.map((item, idx) => (
+              <a
+                key={idx}
+                href={item.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex min-w-[220px] max-w-[260px] flex-shrink-0 flex-col rounded-2xl border border-stone-900/10 bg-white/55 p-3.5 transition hover:border-teal-500/30 hover:shadow-sm"
+              >
+                <span className="mb-1.5 text-[11px] font-bold text-teal-700">{item.source}</span>
+                <span className="line-clamp-2 text-xs font-semibold leading-snug text-stone-700 transition group-hover:text-[#173f3c]">
+                  {item.title}
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ====== 四宫格 ====== */}
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
