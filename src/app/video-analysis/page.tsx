@@ -569,8 +569,8 @@ export default function VideoAnalysisPage() {
                 暂无采集任务，切换到「新建任务」创建一个吧
               </div>
             ) : (
-              <div className="app-card overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="app-card overflow-x-auto">
+                <table className="w-full text-sm min-w-[700px]">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500">平台</th>
