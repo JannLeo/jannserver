@@ -108,12 +108,12 @@ function CodeTab() {
 }
 
 function ProjectsTab() {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [repos, setRepos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/projects').then(r => r.json()).then(d => {
-      setProjects(Array.isArray(d) ? d : (d.projects || []));
+    fetch('/api/repos').then(r => r.json()).then(d => {
+      setRepos(Array.isArray(d) ? d : (d.repos || d.data || []));
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -121,16 +121,16 @@ function ProjectsTab() {
   return (
     <div className="space-y-2">
       {loading ? <div className="text-sm text-slate-400">加载中...</div> :
-       projects.length === 0 ? <div className="text-sm text-slate-400">暂无项目</div> : (
+       repos.length === 0 ? <div className="text-sm text-slate-400">暂无项目</div> : (
         <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
-          {projects.map(p => (
-            <a key={p.id} href={`/projects/${p.id}`} target="_blank" rel="noreferrer"
+          {repos.map(r => (
+            <a key={r.id} href={`/code?repoId=${r.id}`} target="_blank" rel="noreferrer"
               className="block rounded-xl border border-stone-200 bg-white p-4 transition hover:border-amber-300 hover:shadow-sm">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-sm">{p.name}</span>
-                <span className="text-xs rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">{p.status || '活跃'}</span>
+                <span className="font-bold text-sm">{r.name}</span>
+                <span className="text-xs text-slate-400">★ {r.stars ?? 0}</span>
               </div>
-              <p className="mt-1 text-xs text-slate-500 line-clamp-2">{p.description || '无描述'}</p>
+              <p className="mt-1 text-xs text-slate-500 line-clamp-2">{r.description || r.url || '无描述'}</p>
             </a>
           ))}
         </div>
