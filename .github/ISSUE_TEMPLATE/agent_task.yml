@@ -1,0 +1,69 @@
+name: 代理任务
+description: Agent 自动创建的任务
+title: "[agent] "
+labels: [automation]
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: 任务类型
+      options:
+        - feat (新功能)
+        - fix (修复)
+        - refactor (重构)
+        - docs (文档)
+        - test (测试)
+        - chore (维护)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: 目标区域
+      options:
+        - hermes (Agent 框架)
+        - workspace (个人工作台)
+        - aitoearn (AiToEarn)
+        - symphony (Symphony)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 任务描述
+      description: 具体要做什么
+      placeholder: 例如：修复 /ask 页面在搜索精确匹配 WiKi 文档时找不到结果的问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收命令
+      description: Reviewer 验证用的 shell 命令
+      placeholder: |
+        curl -s -b /tmp/cookie.txt -X POST http://localhost:3000/api/ai/ask \
+          -H 'Content-Type: application/json' \
+          -d '{"question":"fitness是什么","history":[]}' | grep usedKnowledgeBase
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_files
+    attributes:
+      label: 影响文件（预估）
+      description: 预计修改哪些文件
+      placeholder: |
+        - src/app/ask/page.tsx
+        - src/app/api/ai/ask/route.ts
+      render: shell
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 注意事项
+      description: 特殊约束
+      placeholder: 不改 schema、不改 business logic 等
