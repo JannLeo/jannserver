@@ -219,7 +219,7 @@ function DailySummarySection({ todayDate }: { todayDate: string }) {
     try {
       const res = await fetch('/api/ai/daily-summary/generate-and-save', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-regenerate': 'true' },
         body: JSON.stringify({ date: todayDate }),
       });
       const data = await res.json();
