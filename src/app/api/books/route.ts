@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ results: [], library: all });
   }
 
-  const query = encodeURIComponent(q.trim());
+  const query = q.trim();
   const limit = 20;
   const url = type === 'isbn'
     ? `https://openlibrary.org/search.json?isbn=${query}&limit=${limit}`
