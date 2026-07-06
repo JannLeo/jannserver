@@ -70,9 +70,8 @@ const hiddenHrefs = new Set(Object.values(SUB_MENUS).flatMap((m) => m.children.m
 const navItems: [string, string, string, string][] = [
   ['/dashboard', '🏠', '工作台', '工作台'],
   ['/daily', '📅', 'Daily', '每日记录'],
-  ['/knowledge', '📚', '知识库', '文档·代码·项目·Wiki'],
+  ['/knowledge-ask', '📚', '知识问答', '文档·代码·项目·Wiki·AI问答'],
   ['/usage', '💳', '用量', 'AI 使用情况'],
-  ['/ask', '🤖', 'AI 问答', 'AI 知识库问答'],
   ['/video-analysis', '🎬', '视频分析', '视频分析工作台'],
   ['/brain', '🧠', 'Brain', 'WorldQuant BRAIN Alphas'],
   ['/novel', '✍️', '小说', 'AI 小说创作'],
