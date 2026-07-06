@@ -67,8 +67,10 @@ const SUB_MENUS: Record<string, { emoji: string; label: string; tooltip: string;
 // 从 navItems 中移除被子菜单收纳的项
 const hiddenHrefs = new Set(Object.values(SUB_MENUS).flatMap((m) => m.children.map((c) => c[0])));
 
+// 工作台单独提取，用于在子菜单前置顶渲染
+const DASHBOARD_ITEM: [string, string, string, string] = ['/dashboard', '🏠', '工作台', '工作台'];
+
 const navItems: [string, string, string, string][] = [
-  ['/dashboard', '🏠', '工作台', '工作台'],
   ['/daily', '📅', 'Daily', '每日记录'],
   ['/knowledge', '📚', '知识库', '文档·代码·项目·Wiki'],
   ['/usage', '💳', '用量', 'AI 使用情况'],
@@ -191,7 +193,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
 
       {/* Nav items */}
       <nav className="mt-4 flex flex-1 flex-col gap-1.5 overflow-y-auto pr-0.5">
-        {/* Sub menus first */}
+        {/* 工作台置顶 */}
+        {renderNavLink(DASHBOARD_ITEM)}
+
+        {/* Sub menus */}
         {Object.entries(SUB_MENUS).map(([key, config]) => renderSubMenu(key, config))}
 
         {/* Regular nav items */}
