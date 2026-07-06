@@ -64,10 +64,10 @@ export default function AskPage() {
         body: JSON.stringify({ question: q, repoName }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        if (data.configured === false) {
+      if (!res.ok || !data) {
+        if (data?.configured === false) {
           setResult({ answer: '', sources: [], configured: false, error: data.error || 'AI 未配置' });
         } else {
           setError(data.error || `请求失败 (${res.status})`);

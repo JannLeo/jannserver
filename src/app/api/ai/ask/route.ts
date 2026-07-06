@@ -789,7 +789,10 @@ export async function POST(req: NextRequest) {
     );
 
     // 构造 sources：从 docId 反查 title
-    const sources = await buildSourcesFromSemanticHits(semanticHits);
+    const sources = await buildSourcesFromSemanticHits(semanticHits).catch((err: any) => {
+      console.error('[ai.ask] buildSourcesFromSemanticHits failed:', err);
+      return [];
+    });
 
     const systemPrompt = `你是一个知识库问答助手。根据提供的「知识库片段」上下文回答用户问题。
 
