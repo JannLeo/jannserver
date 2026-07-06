@@ -131,7 +131,7 @@ async function translateItems(items: NewsItem[]): Promise<NewsItem[]> {
   return results;
 }
 
-async function writeToDb(items: NewsItem[]) {
+async function writeToDb(items: NewsItem[], originalTitles: string[]) {
   try {
     const raw: any = sqlite;
     const insert = raw.prepare(`
@@ -149,8 +149,10 @@ async function writeToDb(items: NewsItem[]) {
     const tx = raw.transaction(() => {
       // Clear old items first (keep latest MAX_ITEMS * 2)
       raw.prepare(`DELETE FROM cached_news WHERE id NOT IN (SELECT id FROM cached_news ORDER BY cached_at DESC LIMIT ${MAX_ITEMS * 2})`).run();
-      for (const item of items) {
-        insert.run(item.title, item.link, item.source, item.pubDate, item.description, item.title);
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const originalTitle = i < originalTitles.length ? originalTitles[i] : item.title;
+        insert.run(originalTitle, item.link, item.source, item.pubDate, item.description, item.title);
       }
     });
     tx();
@@ -174,11 +176,12 @@ export async function GET(req: Request) {
   items.sort((a, b) => (new Date(b.pubDate).getTime() || 0) - (new Date(a.pubDate).getTime() || 0));
   items = items.slice(0, MAX_ITEMS);
 
-  // 2. Translate all (batch, with delay)
+  // 2. Translate all (batch, with delay) — preserve original English titles first
+  const originalTitles = items.map(i => i.title);
   const translated = await translateItems(items);
 
-  // 3. Write to DB
-  const written = await writeToDb(translated);
+  // 3. Write to DB (original English → title, Chinese translation → translated_title)
+  const written = await writeToDb(translated, originalTitles);
 
   // 4. Return summary
   return Response.json({

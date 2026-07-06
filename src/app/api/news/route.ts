@@ -272,20 +272,31 @@ export async function GET(req: Request) {
     try {
       const raw: any = sqlite;
       const rows = raw.prepare(`
-        SELECT id, title, link, source, pub_date, translated_title, cached_at
+        SELECT id, title, link, source, pub_date, translated_title, description, cached_at, is_translated
         FROM cached_news
-        WHERE cached_at >= datetime('now', '-30 minutes')
         ORDER BY pub_date DESC, cached_at DESC
         LIMIT ?
       `).all(limit);
       if (rows && rows.length > 0) {
+        const latestCachedAt = rows[0]?.cached_at ?? '';
+        const isFresh = new Date(latestCachedAt).getTime() > Date.now() - 30 * 60 * 1000;
+
         const items = rows.map((r: any) => ({
-          title: r.translated_title ?? r.title,
+          title: r.is_translated ? (r.translated_title ?? r.title) : r.title,
           link: r.link,
           source: r.source,
           pubDate: r.pub_date ?? r.cached_at,
+          description: r.description ?? '',
         }));
-        return Response.json({ items, fetchedAt: rows[0]?.cached_at ?? '', total: items.length, cached: true });
+
+        // If cache is stale, return cached content immediately + trigger background refresh
+        if (!isFresh) {
+          // Fire-and-forget: trigger prefetch in background, don't await
+          fetch(new URL('/api/news/prefetch', req.url).toString()).catch(() => {});
+          return Response.json({ items, fetchedAt: latestCachedAt, total: items.length, cached: true, refreshing: true });
+        }
+
+        return Response.json({ items, fetchedAt: latestCachedAt, total: items.length, cached: true });
       }
     } catch { /* cache miss → fall through to live fetch */ }
   }
