@@ -127,7 +127,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
   const renderSubMenu = (key: string, config: typeof SUB_MENUS[string]) => {
     const isOpen = openSubMenu === key;
     const hasActiveChild = isSubMenuActive(config.children);
-    const isParentActive = ['/notes', '/tasks', '/memos', '/image-gen', '/self-study', '/self-study/courses', '/self-study/tutor', '/self-study/flashcards'].includes(pathname);
+    const parentHrefs = config.children.map(c => c[0]);
+    const isParentActive = parentHrefs.includes(pathname);
 
     return (
       <div key={key} className="relative">

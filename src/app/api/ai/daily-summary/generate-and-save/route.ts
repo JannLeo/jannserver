@@ -61,16 +61,17 @@ export async function POST(req: NextRequest) {
 
   initDb();
 
-  // 1. 检查是否已有 AI 总结
+  // 1. Check if already has AI summary
   let dailyRow = db.select().from(dailyPages).where(eq(dailyPages.date, date)).get();
   let dailyContent = '';
+  let isRegenerate = false;
 
   if (dailyRow) {
     dailyContent = readMarkdown(dailyRow.filePath || '');
     if (!dailyContent) dailyContent = '';
 
-    // 如果已有 ## AI 总结，直接返回（不重复生成）
-    if (/^##\s*AI\s*总结/m.test(dailyContent)) {
+    // If already has ## AI 总结 and NOT regenerating, skip
+    if (/^##\s*AI\s*总结/m.test(dailyContent) && !req.headers.get('x-regenerate')) {
       return NextResponse.json({
         ok: true,
         skipped: true,
@@ -79,8 +80,14 @@ export async function POST(req: NextRequest) {
         date,
       });
     }
+
+    // Regenerating: strip existing AI summary section first so we don't accumulate
+    if (/^##\s*AI\s*总结/m.test(dailyContent)) {
+      dailyContent = dailyContent.replace(AI_SUMMARY_RE, '').trim();
+      isRegenerate = true;
+    }
   } else {
-    // 自动创建 daily note
+    // Auto-create daily note
     const id = uuidv4();
     const filePath = `daily/${date}.md`;
     const template = DEFAULT_DAILY_TEMPLATE.replace('{{date}}', date);
