@@ -66,9 +66,9 @@ export async function POST(req: NextRequest) {
       `).run(status, masteryScore, startedAt, completedAt, now, existing.id);
     } else {
       db.prepare(`
-        INSERT INTO learning_progress (user_id, course_id, module_id, status, mastery_score, attempts, started_at, completed_at)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-      `).run(userId, courseId, moduleId, status ?? 'in_progress', masteryScore ?? 0, startedAt, completedAt);
+        INSERT INTO learning_progress (user_id, course_id, module_id, status, mastery_score, attempts, started_at, completed_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+      `).run(userId, courseId, moduleId, status ?? 'in_progress', masteryScore ?? 0, startedAt, completedAt, now);
     }
 
     db.close();
