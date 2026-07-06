@@ -19,6 +19,27 @@ function tokenize(text: string): string[] {
     .filter(t => t.length >= 2);
 }
 
+/**
+ * Extract English words (2+ chars) from a mixed Chinese+English string.
+ * e.g. "worldquant里面fitness是什么" → ["worldquant", "fitness", "worldquant fitness"]
+ */
+function extractEnglishTokens(text: string): string[] {
+  const results = new Set<string>();
+  // Find all English words
+  const wordMatches = text.matchAll(/[a-zA-Z]{2,}/g);
+  const words: string[] = [];
+  for (const m of wordMatches) { words.push(m[0]); }
+  // Single words
+  for (const w of words) { results.add(w.toLowerCase()); }
+  // Adjacent word pairs/triplets (e.g. "worldquant fitness")
+  for (let i = 0; i < words.length; i++) {
+    for (let j = i + 1; j < Math.min(i + 3, words.length + 1); j++) {
+      results.add(words.slice(i, j).join(' ').toLowerCase());
+    }
+  }
+  return Array.from(results);
+}
+
 function buildSearchQueries(question: string): string[] {
   const q = question.trim();
   const queries: string[] = [q];
@@ -29,6 +50,10 @@ function buildSearchQueries(question: string): string[] {
       queries.push(tokens[i] + ' ' + tokens[j]);
     }
   }
+  // Also add English word extracts from the mixed Chinese+English query
+  // so that e.g. "worldquant里面fitness是什么" generates "worldquant" and "fitness"
+  // as separate FTS queries, instead of only the full combined string
+  queries.push(...extractEnglishTokens(q));
   return [...new Set(queries)];
 }
 
