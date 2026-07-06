@@ -16,6 +16,7 @@ export async function middleware(req: NextRequest) {
     '/login', '/api/health', '/api/init',
     '/api/auth/login', '/api/auth/logout', '/api/auth/me',
     '/api/news', '/api/trending', '/api/usage',
+    '/api/tasks/delegations',
     '/_next/', '/favicon.ico',
     // PWA assets
     '/manifest.json', '/sw.js',
