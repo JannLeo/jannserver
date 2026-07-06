@@ -641,12 +641,13 @@ function AgentReachSearch() {
   const [searched, setSearched] = useState(false);
   const [time, setTime] = useState(0);
 
-  const run = async () => {
-    if (!query.trim()) return;
+  const doSearch = async (searchQuery: string) => {
+    if (!searchQuery.trim()) return;
     setLoading(true); setError(''); setResults([]); setSearched(true);
     try {
       const res = await fetch(
-        `/api/agent-reach/search?q=${encodeURIComponent(query)}&platform=${platform}`
+        `/api/agent-reach/search?q=${encodeURIComponent(searchQuery)}&platform=${platform}&_=${Date.now()}`,
+        { cache: 'no-store' }
       );
       const data = await res.json();
       if (!res.ok) { setError(data.error || `HTTP ${res.status}`); return; }
@@ -691,11 +692,18 @@ function AgentReachSearch() {
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && run()}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                // 直接从 DOM 取当前值，避免 onKeyDown 时 query state 还未更新的闭包 stale 问题
+                const val = (e.currentTarget as HTMLInputElement).value;
+                if (val.trim()) doSearch(val);
+              }
+            }}
             placeholder="输入搜索关键词，按 Enter 搜索…"
             className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-600"
           />
-          <button onClick={run} disabled={loading}
+          <button onClick={() => query.trim() && doSearch(query)} disabled={loading}
             className="px-4 py-2 app-button-primary rounded-lg text-sm disabled:opacity-50 flex items-center gap-2">
             {loading ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />搜索中…</>
               : '🔍 搜索'}

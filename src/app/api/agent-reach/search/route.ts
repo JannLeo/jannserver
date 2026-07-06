@@ -132,14 +132,6 @@ export async function GET(req: NextRequest) {
   let results: any[] = [];
 
   try {
-    const queries = platform === 'all'
-      ? [
-          { p: 'github', fn: () => ghSearch(q) },
-          { p: 'youtube', fn: () => youtubeSearch(q) },
-          { p: 'web', fn: () => webSearch(q) },
-        ]
-      : [{ p: platform, fn: null }];
-
     const searchFns: Record<string, () => Promise<any[]>> = {
       github: () => ghSearch(q),
       youtube: () => youtubeSearch(q),
