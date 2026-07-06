@@ -143,12 +143,28 @@ function UsageSection({ summary }: { summary: UsageSummary | null }) {
 }
 
 // ─── Daily Summary Section ───────────────────────────────────────────────────
-// AI summary ends at the `---` separator inserted by generate-and-save
-const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n---|$)/;
+/**
+ * Extracts the AI summary content from the full daily markdown.
+ *
+ * Stops at the FIRST occurrence of any of these to avoid capturing
+ * template sections or duplicate headers:
+ *   - \n#   (any h1 heading — template has `# YYYY-MM-DD`)
+ *   - \n##  (any h2 heading — template has `## 今日重点` etc.)
+ *   - \n--- (markdown horizontal rule separating AI summary from template)
+ *   - end of string
+ */
+const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n# |\n---|\n## |$)/;
 
 function extractSummary(text: string): string | null {
   const match = text.match(AI_SUMMARY_RE);
-  if (match) return match[0].replace(/^## AI 总结\n?/, '').trim();
+  if (match) {
+    // Trim the "## AI 总结" header, and any trailing horizontal rules or blank lines
+    return match[0]
+      .replace(/^## AI 总结\s*\n?/, '')
+      .replace(/\n---\s*$/, '')
+      .replace(/\n# \d{4}-\d{2}-\d{2}\s*$/, '')
+      .trim();
+  }
   return null;
 }
 
@@ -320,178 +336,235 @@ function AskSection({ todayDate }: { todayDate: string }) {
   );
 }
 
-// ─── Main Dashboard ──────────────────────────────────────────────────────────
-export default function DashboardClient({ data, activity, usageSummary }: { data: DashboardData; activity: ActivityData; usageSummary: UsageSummary | null }) {
-  const { todayDate, todayTasks } = data;
-  const { totalCommits: totalCommitsToday } = activity;
-  const [tasks, setTasks] = useState<Task[]>(todayTasks);
-  const [toggling, setToggling] = useState<string | null>(null);
-  const [newsItems, setNewsItems] = useState<{title: string; link: string; source: string; pubDate: string}[]>([]);
+// ─── Overview Section ────────────────────────────────────────────────────────
+function OverviewSection({ tasks }: { tasks: Task[] }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">今日任务</h2>
+        <span className="text-xs font-bold text-stone-500">{tasks.filter(t => t.status === 'done').length}/{tasks.length}</span>
+      </div>
+      {tasks.length > 0 ? (
+        <div className="space-y-1.5">
+          {tasks.slice(0, 6).map(task => (
+            <div key={task.id} className="flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full ${task.status === 'done' ? 'bg-teal-500' : task.priority === 'high' ? 'bg-red-400' : 'bg-stone-300'}`} />
+              <span className={`text-xs ${task.status === 'done' ? 'line-through text-stone-400' : 'text-stone-700'}`}>{task.title}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-stone-300 bg-white/30 p-6 text-center">
+          <p className="text-xs text-stone-500">今天还没有任务</p>
+          <Link href="/tasks" className="mt-2 inline-block text-xs font-bold text-teal-700 hover:underline">去创建 →</Link>
+        </div>
+      )}
+    </div>
+  );
+}
 
-  const greeting = getGreeting(new Date().getHours());
-  const todoTasks = tasks.filter(t => t.status === 'todo');
-  const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
-  const doneTasks = tasks.filter(t => t.status === 'done');
+// ─── Activity Section ────────────────────────────────────────────────────────
+function ActivitySection({ data }: { data: ActivityData | null }) {
+  if (!data) return null;
+  const totalCommits = data.totalCommits;
 
-  const toggleTask = async (id: string, cur: string) => {
-    const ns = cur === 'done' ? 'todo' : 'done';
-    setToggling(id);
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: ns, completedAt: ns === 'done' ? new Date().toISOString() : null } : t));
-    try {
-      const res = await fetch(`/api/tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: ns }) });
-      if (!res.ok) setTasks(prev => prev.map(t => t.id === id ? { ...t, status: cur } : t));
-    } catch { setTasks(prev => prev.map(t => t.id === id ? { ...t, status: cur } : t)); }
-    finally { setToggling(null); }
-  };
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">活动概览</h2>
+      <div className="grid grid-cols-2 gap-2">
+        <StatBadge label="今日提交" value={totalCommits} tone="text-teal-700" />
+        <StatBadge label="仓库数量" value={data.repos?.length || 0} tone="text-stone-800" />
+      </div>
+    </div>
+  );
+}
 
-const quickCreateItems = [
-    { href: '/notes/new', icon: '✍️', label: '新建笔记', hint: '沉淀想法' },
-    { href: '/memos?new=1', icon: '💡', label: '新建备忘', hint: '快速记录' },
-    { href: '/tasks?new=1', icon: '✓', label: '新建任务', hint: '安排下一步' },
-    { href: '/daily', icon: '☀️', label: '今日 Daily', hint: '复盘今天' },
-  ];
+// ─── Top Section ─────────────────────────────────────────────────────────────
+function TopSection({ todayDate }: { todayDate: string }) {
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [activity, setActivity] = useState<ActivityData | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [undoneTasks, setUndoneTasks] = useState<Task[]>([]);
+  const [repos, setRepos] = useState<RepoStat[]>([]);
 
   useEffect(() => {
-    fetch('/api/news?limit=6')
-      .then(r => r.json())
-      .then(d => setNewsItems(d.items ?? []))
-      .catch(() => {});
-  }, []);
+    Promise.all([
+      fetch('/api/usage').then(r => r.json()).catch(() => null),
+      fetch('/api/activity/today').then(r => r.json()).catch(() => null),
+      fetch('/api/tasks?limit=50').then(r => r.json()).catch(() => ({ tasks: [] })),
+      fetch('/api/repos').then(r => r.json()).catch(() => ({ repos: [] })),
+    ]).then(([u, a, t, r]) => {
+      if (u && u.ok) setUsage(u);
+      if (a && a.ok) setActivity(a);
+      const taskList: Task[] = t.tasks ?? [];
+      setTasks(taskList);
+      setUndoneTasks(taskList.filter((tk: Task) => tk.status !== 'done'));
+      setRepos(r.repos ?? []);
+    });
+  }, [todayDate]);
+
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const handleToggle = async (id: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'done' ? 'todo' : 'done';
+    setTogglingId(id);
+    try {
+      await fetch('/api/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus }),
+      });
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      setUndoneTasks(prev =>
+        newStatus === 'done'
+          ? prev.filter(t => t.id !== id)
+          : [...prev, tasks.find(t => t.id === id)!]
+      );
+    } catch {}
+    setTogglingId(null);
+  };
+
   return (
-    <div className="relative mx-auto min-h-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-      {/* 背景装饰 */}
-      <div className="pointer-events-none absolute right-8 top-8 hidden h-48 w-48 rounded-full bg-teal-300/20 blur-3xl lg:block" />
+    <section>
+      <div className="mb-6">
+        <UsageSection summary={usage} />
+      </div>
 
-{/* 📰 新闻快讯（最上方） */}
-      {newsItems.length > 0 && (
-        <section className="surface-card overflow-hidden rounded-[1.75rem]">
-          <div className="flex items-center justify-between border-b border-stone-900/10 px-5 py-3.5 sm:px-6">
-            <div className="flex items-center gap-2">
-              <span className="rounded-lg bg-blue-100 px-2 py-1 text-[11px] font-black text-blue-700">📰 快讯</span>
-              <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">全球新闻</h2>
-            </div>
-            <Link href="/news" className="rounded-full border border-stone-900/10 bg-white/55 px-3 py-1 text-xs font-black text-stone-600 transition hover:border-teal-500/40 hover:text-teal-700">更多 →</Link>
-          </div>
-          <div className="flex gap-4 overflow-x-auto p-4 sm:p-5 scrollbar-hide">
-            {newsItems.map((item, idx) => (
-              <a
-                key={idx}
-                href={item.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex min-w-[220px] max-w-[260px] flex-shrink-0 flex-col rounded-2xl border border-stone-900/10 bg-white/55 p-3.5 transition hover:border-teal-500/30 hover:shadow-sm"
-              >
-                <span className="mb-1.5 text-[11px] font-bold text-teal-700">{item.source}</span>
-                <span className="line-clamp-2 text-xs font-semibold leading-snug text-stone-700 transition group-hover:text-[#173f3c]">
-                  {item.title}
-                </span>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
+      <div className="grid gap-3 lg:grid-cols-3">
+        {/* Daily Summary */}
+        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">AI 日总结</h2>
+          <DailySummarySection todayDate={todayDate} />
+        </div>
 
-      {/* ====== 顶部横幅 ====== */}
-      <section className="surface-card relative overflow-hidden rounded-[2rem] p-5 sm:p-7 lg:p-8">
-        <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-amber-300/28 blur-2xl" />
-        <div className="relative flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="section-kicker">{todayDate}</p>
-            <h1 className="mt-2 text-3xl font-black leading-[0.98] tracking-[-0.06em] text-stone-950 sm:text-4xl lg:text-5xl">
-              {greeting}，<span className="text-teal-700">把今天的系统跑顺。</span>
-            </h1>
-            <p className="mt-4 text-sm text-stone-600 font-semibold">
-              今日待办 <span className="text-teal-700">{todoTasks.length + inProgressTasks.length}</span> · 已完成 <span className="text-emerald-700">{doneTasks.length}</span> · 代码热度 <span className="text-stone-900">{totalCommitsToday}</span> 次提交
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/tasks" className="px-4 py-2 rounded-full border border-stone-200 bg-white/50 text-xs font-bold text-stone-600 hover:border-teal-400 hover:text-teal-700 transition">全部任务 →</Link>
-            <Link href="/notes/new" className="px-4 py-2 rounded-full bg-teal-700 text-white text-xs font-bold hover:bg-teal-800 transition">✍️ 新笔记</Link>
-          </div>
+        {/* Today's Questions */}
+        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+          <AskSection todayDate={todayDate} />
+        </div>
+
+        {/* Overview */}
+        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+          <OverviewSection tasks={tasks} />
+        </div>
+      </div>
+
+      {/* Activity */}
+      <div className="mt-4 rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+        <ActivitySection data={activity} />
+      </div>
+    </section>
+  );
+}
+
+// ─── Bottom Section ──────────────────────────────────────────────────────────
+function BottomSection({ todayDate }: { todayDate: string }) {
+  const [repos, setRepos] = useState<RepoStat[]>([]);
+  const [news, setNews] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/repos').then(r => r.json()).catch(() => ({ repos: [] })),
+      fetch('/api/news').then(r => r.json()).catch(() => ({ articles: [] })),
+    ]).then(([r, n]) => {
+      setRepos(r.repos ?? []);
+      setNews(n.articles ?? []);
+      setLoading(false);
+    });
+  }, [todayDate]);
+
+  if (loading) {
+    return (
+      <section>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="animate-pulse rounded-2xl bg-stone-100 h-48" />
+          <div className="animate-pulse rounded-2xl bg-stone-100 h-48" />
         </div>
       </section>
+    );
+  }
 
-      {/* ====== AI 问答（置顶） ====== */}
-      <section className="surface-card rounded-[1.75rem] p-5 sm:p-6 mt-6">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-lg">🤖</span>
-          <div>
-            <p className="section-kicker">Knowledge search</p>
-            <h2 className="text-lg font-black tracking-[-0.03em] text-stone-900">AI 问答</h2>
-          </div>
-        </div>
-        <AskSection todayDate={todayDate} />
-      </section>
+  const syncRepos = repos.filter(r => r.lastSyncAt);
+  const unsyncRepos = repos.filter(r => !r.lastSyncAt);
 
-{/* ====== 四宫格 ====== */}
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-
-        {/* ── 左列：今日任务 ── */}
-        <section className="surface-card overflow-hidden rounded-[1.75rem]">
-          <div className="border-b border-stone-900/10 px-5 py-4 sm:px-6">
-            <p className="section-kicker">Focus queue</p>
-            <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">今日要干的活</h2>
-          </div>
-          <div className="p-4 sm:p-5">
-            {tasks.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-stone-300 bg-white/40 py-12 text-center">
-                <p className="text-5xl">🎉</p>
-                <p className="mt-3 text-sm font-bold text-stone-500">今天没事干，休息一下吧。</p>
-                <Link href="/tasks?new=1" className="mt-5 inline-flex rounded-full bg-[#173f3c] px-5 py-2.5 text-sm font-black text-amber-50 shadow-lg shadow-teal-900/10 transition hover:-translate-y-0.5">
-                  安排新任务
-                </Link>
+  return (
+    <section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Inbox / New Notes */}
+        <div className="flex flex-col gap-3">
+          <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+            <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">Repos</h2>
+            {syncRepos.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {syncRepos.slice(0, 4).map(repo => (
+                  <div key={repo.id} className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-stone-700">{repo.name}</span>
+                    <span className="text-[10px] text-stone-400">{repo.documentCount} 文档</span>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="space-y-5">
-                {inProgressTasks.length > 0 && (
-                  <div>
-                    <h3 className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-amber-700">进行中 ({inProgressTasks.length})</h3>
-                    <div className="space-y-2">{inProgressTasks.map(t => <TaskItem key={t.id} task={t} onToggle={toggleTask} toggling={toggling === t.id} />)}</div>
-                  </div>
-                )}
-                {todoTasks.length > 0 && (
-                  <div>
-                    <h3 className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-stone-500">待办 ({todoTasks.length})</h3>
-                    <div className="space-y-2">{todoTasks.map(t => <TaskItem key={t.id} task={t} onToggle={toggleTask} toggling={toggling === t.id} />)}</div>
-                  </div>
-                )}
-                {doneTasks.length > 0 && (
-                  <div>
-                    <h3 className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-emerald-700">已完成 ({doneTasks.length})</h3>
-                    <div className="space-y-2">{doneTasks.map(t => <TaskItem key={t.id} task={t} onToggle={toggleTask} toggling={toggling === t.id} />)}</div>
-                  </div>
-                )}
-              </div>
+              <p className="mt-3 text-xs text-stone-400">还没有同步仓库</p>
+            )}
+            {unsyncRepos.length > 0 && (
+              <p className="mt-2 text-[10px] text-amber-600">{unsyncRepos.length} 个仓库未同步</p>
             )}
           </div>
-        </section>
+        </div>
 
-        {/* ── 右列 ── */}
-        <div className="space-y-5">
-
-{/* AI 日总结 */}
-          <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="section-kicker">AI summary</p>
-                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">AI 日总结</h2>
-              </div>
-              <Link href={`/daily/${todayDate}`} className="text-xs font-bold text-teal-700 hover:underline">编辑 →</Link>
+        {/* News */}
+        <div className="flex flex-col gap-3">
+          <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">📰 新闻</h2>
+              <Link href="/news" className="text-[10px] font-bold text-teal-700 hover:underline">更多 →</Link>
             </div>
-            <DailySummarySection todayDate={todayDate} />
-          </section>
-
-          {/* API 使用量 */}
-          <section className="surface-card rounded-[1.75rem] p-5 sm:p-6">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="section-kicker">Resource monitor</p>
-                <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-stone-900">用量</h2>
+            {news.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {news.slice(0, 5).map((item, idx) => (
+                  <Link key={idx} href={item.link || '#'} target="_blank" className="group flex items-start gap-2 rounded-xl p-1.5 transition hover:bg-white/50">
+                    <span className="mb-1.5 text-[11px] font-bold text-teal-700">{item.source}</span>
+                    <span className="line-clamp-2 text-xs font-semibold leading-snug text-stone-700 transition group-hover:text-[#173f3c]">
+                      {item.translated_title || item.title || ''}
+                    </span>
+                  </Link>
+                ))}
               </div>
-            </div>
-            <UsageSection summary={usageSummary} />
-          </section>
+            ) : (
+              <p className="mt-3 text-xs text-stone-400">暂无新闻</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
+// ─── Main Dashboard Component ────────────────────────────────────────────────
+interface DashboardInitialData {
+  todayDate: string;
+}
+
+export default function DashboardPage({ initialData }: { initialData: DashboardInitialData }) {
+  const todayDate = initialData.todayDate;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-teal-50/40 via-white to-stone-50/40 p-3 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-5xl">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-black tracking-[-0.04em] text-stone-900 sm:text-3xl">
+            {getGreeting(new Date().getHours())}
+          </h1>
+          <p className="mt-0.5 text-xs text-stone-500">
+            {todayDate} · 星期{['日', '一', '二', '三', '四', '五', '六'][new Date().getDay()]}
+          </p>
+        </div>
+
+        <TopSection todayDate={todayDate} />
+
+        <div className="mt-6">
+          <BottomSection todayDate={todayDate} />
         </div>
       </div>
     </div>
