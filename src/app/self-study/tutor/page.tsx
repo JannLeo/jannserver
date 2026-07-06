@@ -2,6 +2,8 @@
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Message { role: 'user' | 'assistant'; content: string; }
 interface CourseInfo { id: string; title: string; icon: string; }
@@ -171,9 +173,12 @@ function TutorContent() {
                 ? 'bg-teal-600 text-white'
                 : 'bg-white border border-stone-200 text-stone-700'
             }`}>
-              {msg.content.split('\n').map((line: string, j: number) => (
-                <div key={j} className={line.trim() ? '' : 'h-1'}>{line}</div>
-              ))}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                className="prose prose-sm max-w-none prose-stone"
+              >
+                {msg.content}
+              </ReactMarkdown>
             </div>
           </div>
         ))}
