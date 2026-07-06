@@ -288,19 +288,12 @@ function TutorContent() {
                   ? 'bg-white border border-teal-100 text-stone-700 rounded-bl-md shadow-sm'
                   : 'bg-stone-100 text-stone-700 rounded-bl-md'
             }`}>
-              {msg.role === 'assistant' && (
-                <div className="text-xs text-teal-500 font-medium mb-1.5 flex items-center gap-1 border-b border-stone-100 pb-1">
-                  <span>萨</span>
-                  {msg.is_socratic && <span className="text-teal-300">· 苏格拉底</span>}
-                </div>
-              )}
-              {msg.role === 'assistant' ? (
-                <MarkdownContent text={msg.content} />
-              ) : (
-                msg.content.split('\n').map((line, j) => (
-                  <div key={j} className={line.trim() ? 'text-sm' : 'h-1'}>{line}</div>
-                ))
-              )}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                className="prose prose-sm max-w-none prose-stone"
+              >
+                {msg.content}
+              </ReactMarkdown>
             </div>
           </div>
         ))}

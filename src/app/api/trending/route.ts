@@ -87,8 +87,8 @@ async function fetchGitHubTrending(since: string): Promise<TrendingRepo[]> {
 
     if (!name) continue;
 
-    // description: first <p> inside article
-    const pMatch = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(block);
+    // description: <p class="col-9 color-fg-muted ..."> — not the first <p> (sponsor btn comes first)
+    const pMatch = /<p[^>]*color-fg-muted[^>]*>([\s\S]*?)<\/p>/i.exec(block);
     const description = pMatch
       ? pMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
       : '';

@@ -148,11 +148,9 @@ export default function TrendingPage() {
                         <span className="text-xs font-semibold text-stone-500">{owner}</span>
                       </div>
 
-                      {repo.description && (
-                        <p className="mt-2 text-sm leading-relaxed text-stone-600 line-clamp-2">
-                          {repo.description}
-                        </p>
-                      )}
+                      <p className="mt-2 text-sm leading-relaxed text-stone-600 line-clamp-2">
+                        {repo.description || '暂无简介'}
+                      </p>
 
                       <div className="mt-3 flex flex-wrap items-center gap-3">
                         {repo.language && (
