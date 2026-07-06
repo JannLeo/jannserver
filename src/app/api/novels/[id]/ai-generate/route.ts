@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import http from 'http';
 import { db } from '@/lib/db/index';
 import { novels } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -162,36 +163,49 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const prompt = buildPrompt(phase, novel, options || {});
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 150_000);
-
-    let rawContent = '';
-    try {
-      const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${AI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: AI_MODEL,
-          messages: [
-            { role: 'system', content: '你是一位专业的内容生成助手。' },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.7,
-        }),
-        signal: controller.signal,
+    // 使用 http.request 绕过 HTTP_PROXY 拦截（避免 fetch 卡住）
+    console.log('[ai-generate] AI request starting, AI_BASE_URL:', AI_BASE_URL);
+    const rawContent: string = await new Promise((resolve, reject) => {
+      const url = new URL(`${AI_BASE_URL}/chat/completions`);
+      console.log('[ai-generate] url hostname:', url.hostname, 'port:', url.port, 'pathname:', url.pathname);
+      const proxy = process.env.HTTP_PROXY;
+      let hostname = url.hostname;
+      let port = url.port || (url.protocol === 'https:' ? '443' : '80');
+      let path = url.pathname + url.search;
+      console.log('[ai-generate] HTTP_PROXY:', proxy, 'will use proxy:', proxy && !['127.0.0.1', 'localhost', '::1'].includes(url.hostname));
+      if (proxy && !['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+        try {
+          const proxyUrl = new URL(proxy);
+          hostname = proxyUrl.hostname;
+          port = proxyUrl.port || (proxyUrl.protocol === 'https:' ? '443' : '80');
+          path = `${url.protocol}//${url.host}${url.pathname}${url.search}`;
+        } catch {}
+      }
+      console.log('[ai-generate] connecting to hostname:', hostname, 'port:', port, 'path:', path);
+      const req = http.request({
+        hostname, port, path, method: 'POST',
+        headers: { 'Authorization': `Bearer ${AI_API_KEY}`, 'Content-Type': 'application/json', 'Host': url.host },
+      }, (res) => {
+        console.log('[ai-generate] got response status:', res.statusCode);
+        if (res.statusCode !== 200) { reject(new Error(`AI API ${res.statusCode}`)); res.resume(); return; }
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => {
+          console.log('[ai-generate] response body length:', body.length);
+          try { resolve(JSON.parse(body).choices?.[0]?.message?.content || ''); }
+          catch { reject(new Error('AI 返回解析失败')); }
+        });
       });
-      clearTimeout(timeout);
-      if (!res.ok) return NextResponse.json({ configured: true, error: `AI API 返回 ${res.status}` }, { status: 502 });
-      const data = await res.json();
-      rawContent = data.choices?.[0]?.message?.content || '';
-    } catch (err: any) {
-      clearTimeout(timeout);
-      if (err.name === 'AbortError') return NextResponse.json({ configured: true, error: 'AI 请求超时（150s）' }, { status: 504 });
-      return NextResponse.json({ configured: true, error: `请求失败: ${err.message}` }, { status: 502 });
-    }
+      req.on('connect', (res, socket) => { console.log('[ai-generate] CONNECT event!'); socket.destroy(); });
+      req.on('error', (e) => { console.log('[ai-generate] request error:', e.message); reject(e); });
+      req.on('timeout', () => { console.log('[ai-generate] socket timeout!'); req.destroy(); });
+      req.setTimeout(150_000, () => { console.log('[ai-generate] TIMEOUT fired!'); req.destroy(); reject(new Error('AI 请求超时（150s）')); });
+      req.write(JSON.stringify({ model: AI_MODEL, messages: [{ role: 'system', content: '你是一位专业的内容生成助手。' }, { role: 'user', content: prompt }], temperature: 0.7 }));
+      req.end();
+      console.log('[ai-generate] request sent');
+    });
+    console.log('[ai-generate] AI request done, rawContent length:', rawContent.length);
 
     if (!rawContent.trim()) return NextResponse.json({ configured: true, error: 'AI 返回为空' }, { status: 502 });
 

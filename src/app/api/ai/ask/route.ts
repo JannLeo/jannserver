@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
+import http from 'http';
 import { db, sqlite, initDb } from '@/lib/db/index';
 import { searchFts, repoDocuments, repoSources } from '@/lib/db/schema';
 import { or, like } from 'drizzle-orm';
@@ -545,6 +546,7 @@ function handleRepoMetaQuery(question: string): { answer: string; sources: any[]
 
 /**
  * 统一 AI 调用：替换原本 5 处重复的 fetch 块。
+ * 使用 http.request 绕过 HTTP_PROXY 对 127.0.0.1 的拦截。
  * 失败时返回 { answer: 错误信息, error }，让调用方决定如何返回。
  */
 async function callAi(
@@ -554,35 +556,78 @@ async function callAi(
   systemPrompt: string,
   userPrompt: string
 ): Promise<{ answer: string; error?: string }> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
-    const res = await fetch(`${aiBaseUrl}/chat/completions`, {
+  return new Promise((resolve) => {
+    const url = new URL(`${aiBaseUrl}/chat/completions`);
+    const proxy = process.env.HTTP_PROXY;
+
+    // 构建 http.request options
+    let hostname = url.hostname;
+    let port = url.port || (url.protocol === 'https:' ? '443' : '80');
+    let path = url.pathname + url.search;
+
+    // 如果配置了代理，构造代理路径；但 127.0.0.1/localhost 强制直连
+    if (proxy && !['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+      try {
+        const proxyUrl = new URL(proxy);
+        hostname = proxyUrl.hostname;
+        port = proxyUrl.port || (proxyUrl.protocol === 'https:' ? '443' : '80');
+        path = `${url.protocol}//${url.host}${url.pathname}${url.search}`;
+      } catch {}
+    }
+
+    const options: http.RequestOptions = {
+      hostname,
+      port,
+      path,
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${aiApiKey}`,
         'Content-Type': 'application/json',
+        'Host': url.host,
       },
-      body: JSON.stringify({
-        model: aiModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.3,
-      }),
-      signal: controller.signal,
+    };
+
+    const timeout = setTimeout(() => {
+      req.destroy();
+      resolve({ answer: 'AI 请求超时（120s）', error: 'timeout' });
+    }, 120000);
+
+    const req = http.request(options, (res) => {
+      clearTimeout(timeout);
+      if (res.statusCode !== 200) {
+        resolve({ answer: `AI API error: ${res.statusCode}`, error: `http_${res.statusCode}` });
+        res.resume();
+        return;
+      }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        clearTimeout(timeout);
+        try {
+          const data = JSON.parse(body);
+          resolve({ answer: data.choices?.[0]?.message?.content || 'AI 返回为空' });
+        } catch {
+          resolve({ answer: `AI 返回解析失败: ${body.slice(0, 100)}`, error: 'parse_error' });
+        }
+      });
     });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-    const data = await res.json();
-    return { answer: data.choices?.[0]?.message?.content || 'AI 返回为空' };
-  } catch (err: any) {
-    if (err.name === 'AbortError') {
-      return { answer: 'AI 请求超时（120s）', error: 'timeout' };
-    }
-    return { answer: `AI 请求失败: ${err.message}`, error: err.message };
-  }
+
+    req.on('error', (err) => {
+      clearTimeout(timeout);
+      resolve({ answer: `AI 请求失败: ${err.message}`, error: err.message });
+    });
+
+    req.write(JSON.stringify({
+      model: aiModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.3,
+    }));
+    req.end();
+  });
 }
 
 /**
