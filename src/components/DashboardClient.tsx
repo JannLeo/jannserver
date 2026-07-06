@@ -143,7 +143,8 @@ function UsageSection({ summary }: { summary: UsageSummary | null }) {
 }
 
 // ─── Daily Summary Section ───────────────────────────────────────────────────
-const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n## |$)/;
+// AI summary ends at the `---` separator inserted by generate-and-save
+const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n---|$)/;
 
 function extractSummary(text: string): string | null {
   const match = text.match(AI_SUMMARY_RE);

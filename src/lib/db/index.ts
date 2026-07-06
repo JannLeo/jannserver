@@ -374,6 +374,17 @@ CREATE TABLE IF NOT EXISTS novel_volumes (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS cached_news (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL DEFAULT '',
+  link TEXT NOT NULL UNIQUE,
+  source TEXT NOT NULL DEFAULT '',
+  pub_date TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  translated_title TEXT NOT NULL DEFAULT '',
+  is_translated INTEGER NOT NULL DEFAULT 0,
+  cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 for (const stmt of createSQL.trim().split(";").filter(s => s.trim())) {
   if (stmt.trim()) sqlite.exec(stmt.trim() + ";");
@@ -423,6 +434,9 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS idx_novel_chapters_volume ON novel_chapters(novel_id, volume_number, chapter_number);`,
   `CREATE INDEX IF NOT EXISTS idx_novel_volumes_novel ON novel_volumes(novel_id);`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_novel_volumes_number ON novel_volumes(novel_id, volume_number);`,
+  // cached_news indexes
+  `CREATE INDEX IF NOT EXISTS idx_cached_news_cached_at ON cached_news(cached_at);`,
+  `CREATE INDEX IF NOT EXISTS idx_cached_news_pub_date ON cached_news(pub_date);`,
 ];
 for (const idx of indexes) {
   sqlite.exec(idx);

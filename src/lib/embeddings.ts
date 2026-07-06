@@ -19,10 +19,11 @@ async function embedLocal(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
 
   const script = process.env.EMBED_SCRIPT || '/home/sz/workspace/scripts/embed.py';
+  const pythonBin = process.env.EMBED_PYTHON || '/home/sz/workspace/.venv/bin/python3';
   const inputJson = JSON.stringify({ input: texts });
 
   return new Promise((resolve, reject) => {
-    const child = require('child_process').spawn('python3', [script], {
+    const child = require('child_process').spawn(pythonBin, [script], {
       timeout: 30000,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });
@@ -92,7 +93,7 @@ export async function updateEmbeddings(
         chunkIndex: finalChunks[i].idx,
         content: finalChunks[i].text,
         embeddingJson: JSON.stringify(vecs[i]),
-        model: 'local-ngram-384',
+        model: 'fastembed-multilingual-384',
         createdAt: now,
         updatedAt: now,
       })
