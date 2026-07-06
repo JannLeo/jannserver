@@ -90,7 +90,7 @@ if [ $? -eq 0 ]; then
   [ $? -eq 0 ] && BUILD_OK=true
 fi
 set -e
-cd - > /dev/null
+cd - > /dev/null 2>&1 || true
 "$BUILD_OK" && pass "pnpm build" || fail "pnpm build"
 
 # ---------- Check 2: /api/health ----------
