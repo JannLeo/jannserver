@@ -430,27 +430,16 @@ function TopSection({ todayDate }: { todayDate: string }) {
         <UsageSection summary={usage} />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        {/* Daily Summary */}
-        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">AI 日总结</h2>
-          <DailySummarySection todayDate={todayDate} />
-        </div>
-
+      <div className="grid gap-3 lg:grid-cols-2">
         {/* Today's Questions */}
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
           <AskSection todayDate={todayDate} />
         </div>
 
-        {/* Overview */}
+        {/* Activity */}
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <OverviewSection tasks={tasks} />
+          <ActivitySection data={activity} />
         </div>
-      </div>
-
-      {/* Activity */}
-      <div className="mt-4 rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-        <ActivitySection data={activity} />
       </div>
     </section>
   );
@@ -460,15 +449,18 @@ function TopSection({ todayDate }: { todayDate: string }) {
 function BottomSection({ todayDate }: { todayDate: string }) {
   const [repos, setRepos] = useState<RepoStat[]>([]);
   const [news, setNews] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       fetch('/api/repos').then(r => r.json()).catch(() => ({ repos: [] })),
       fetch('/api/news').then(r => r.json()).catch(() => ({ articles: [] })),
-    ]).then(([r, n]) => {
+      fetch('/api/tasks?limit=50').then(r => r.json()).catch(() => ({ tasks: [] })),
+    ]).then(([r, n, t]) => {
       setRepos(r.repos ?? []);
       setNews(n.articles ?? []);
+      setTasks(t.tasks ?? []);
       setLoading(false);
     });
   }, [todayDate]);
@@ -490,7 +482,18 @@ function BottomSection({ todayDate }: { todayDate: string }) {
   return (
     <section>
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Inbox / New Notes */}
+        {/* AI 日总结 + 今日任务 */}
+        <div className="flex flex-col gap-3">
+          <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+            <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">AI 日总结</h2>
+            <DailySummarySection todayDate={todayDate} />
+          </div>
+          <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+            <OverviewSection tasks={tasks} />
+          </div>
+        </div>
+
+        {/* Repos + 新闻 */}
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
             <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">Repos</h2>
@@ -510,10 +513,7 @@ function BottomSection({ todayDate }: { todayDate: string }) {
               <p className="mt-2 text-[10px] text-amber-600">{unsyncRepos.length} 个仓库未同步</p>
             )}
           </div>
-        </div>
 
-        {/* News */}
-        <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">📰 新闻</h2>
