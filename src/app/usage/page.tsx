@@ -115,23 +115,9 @@ export default function UsagePage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         {/* 顶部操作栏 */}
         <div className="flex items-center justify-between mb-6">
-          <div className="flex gap-1 app-input rounded-lg p-1">
-            {(['today', '7d', '30d'] as RangeOption[]).map(r => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`px-4 py-1.5 text-sm rounded-md transition ${
-                  range === r
-                    ? 'app-button-primary'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {r === 'today' ? '今天' : r === '7d' ? '7 天' : '30 天'}
-              </button>
-            ))}
-          </div>
+          <div />
           <button
-            onClick={() => fetchUsage(range)}
+            onClick={() => fetchUsage('7d')}
             disabled={loading}
             className="text-sm px-3 py-1.5 app-button-secondary rounded-lg text-slate-600 disabled:opacity-50"
           >
