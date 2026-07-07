@@ -291,7 +291,7 @@ manager: SessionManager = None  # initialized in startup
 
 # Models
 class HostCreate(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     tailscale_ip: str
     user: str = "root"
@@ -346,9 +346,12 @@ async def list_hosts():
 
 @app.post("/api/hosts")
 async def create_host(host: HostCreate):
-    if host.id in manager.hosts:
-        raise HTTPException(400, f"Host '{host.id}' already exists")
-    hc = HostConfig.from_dict(host.model_dump())
+    data = host.model_dump()
+    if not data.get("id"):
+        data["id"] = data["tailscale_ip"]  # use tailscale_ip as id
+    if data["id"] in manager.hosts:
+        raise HTTPException(400, f"Host '{data['id']}' already exists")
+    hc = HostConfig.from_dict(data)
     manager.add_host(hc)
     await manager.start_session(hc.id)
     return JSONResponse(hc.to_dict(), status_code=201)
