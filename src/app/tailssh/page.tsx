@@ -23,6 +23,15 @@ interface TerminalRef {
   fitAddon: any;
 }
 
+interface NewHostForm {
+  name: string;
+  tailscale_ip: string;
+  user: string;
+  port: string;
+  key_file: string;
+  auto_cmd: string;
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────────
 export default function TailSSHPage() {
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -32,6 +41,9 @@ export default function TailSSHPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hostListRef = useRef<HTMLDivElement>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [addLoading, setAddLoading] = useState(false);
 
   // ── Backend URL ──
   const backendPort = 9222;
@@ -41,13 +53,11 @@ export default function TailSSHPage() {
 
   // ── Load xterm.js dynamically ──
   useEffect(() => {
-    // Load CSS
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css';
     document.head.appendChild(link);
 
-    // Load scripts
     let loaded = 0;
     const checkDone = () => {
       loaded++;
@@ -66,7 +76,6 @@ export default function TailSSHPage() {
     script2.onload = checkDone;
     document.head.appendChild(script2);
 
-    // Also make sure FitAddon is available after load
     const checkInterval = setInterval(() => {
       if (typeof (window as any).Terminal !== 'undefined' && typeof (window as any).FitAddon !== 'undefined') {
         clearInterval(checkInterval);
@@ -79,19 +88,17 @@ export default function TailSSHPage() {
     return () => {
       clearInterval(checkInterval);
       document.head.removeChild(link);
-      document.head.removeChild(script1);
-      document.head.removeChild(script2);
+      try { document.head.removeChild(script1); } catch {}
+      try { document.head.removeChild(script2); } catch {}
       if (wsRef.current) wsRef.current.close();
     };
   }, []);
 
-  // ── Initialize xterm ──
   const initTerminal = () => {
     if (!containerRef.current || terminalRef.current) return;
 
     const FitAddon = (window as any).FitAddon;
     const Terminal = (window as any).Terminal;
-
     if (!Terminal || !FitAddon) return;
 
     const term = new Terminal({
@@ -103,22 +110,6 @@ export default function TailSSHPage() {
         foreground: '#c9d1d9',
         cursor: '#58a6ff',
         selectionBackground: 'rgba(88,166,255,0.3)',
-        black: '#0d1117',
-        brightBlack: '#8b949e',
-        white: '#c9d1d9',
-        brightWhite: '#ffffff',
-        red: '#f85149',
-        brightRed: '#ff7b72',
-        green: '#3fb950',
-        brightGreen: '#56d364',
-        yellow: '#d29922',
-        brightYellow: '#e3b341',
-        blue: '#58a6ff',
-        brightBlue: '#79c0ff',
-        magenta: '#d2a8ff',
-        brightMagenta: '#d2a8ff',
-        cyan: '#39c5cf',
-        brightCyan: '#56d4dd',
       },
       scrollback: 5000,
     });
@@ -128,7 +119,6 @@ export default function TailSSHPage() {
     term.open(containerRef.current);
     fitAddon.fit();
 
-    // Handle keyboard input
     term.onData((data: string) => {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -141,16 +131,18 @@ export default function TailSSHPage() {
     });
 
     terminalRef.current = { term, fitAddon };
+    term.write('选择一台主机开始连接\r\n');
   };
 
   // ── Fetch hosts ──
   const refreshHosts = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/api/hosts`);
+      if (!res.ok) return;
       const data = await res.json();
       setHosts(data);
     } catch (e) {
-      console.error('Failed to fetch hosts:', e);
+      // backend not reachable
     }
   }, [baseUrl]);
 
@@ -160,7 +152,7 @@ export default function TailSSHPage() {
     return () => clearInterval(interval);
   }, [refreshHosts]);
 
-  // ── Connect to host ──
+  // ── Connect ──
   const connectHost = (hostId: string) => {
     if (wsRef.current) {
       wsRef.current.close();
@@ -170,7 +162,6 @@ export default function TailSSHPage() {
     setCurrentHost(hostId);
     setWsStatus('connecting');
 
-    // Clear terminal
     const tr = terminalRef.current;
     if (tr) {
       tr.term.clear();
@@ -180,16 +171,9 @@ export default function TailSSHPage() {
     const ws = new WebSocket(`${wsBase}/ws/${hostId}`);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      setWsStatus('connected');
-    };
-
-    ws.onclose = () => {
-      setWsStatus('disconnected');
-    };
-
+    ws.onopen = () => setWsStatus('connected');
+    ws.onclose = () => setWsStatus('disconnected');
     ws.onerror = () => {
-      const tr = terminalRef.current;
       if (tr) tr.term.write('\r\n\x1b[31m[WebSocket 错误]\x1b[0m\r\n');
     };
 
@@ -201,41 +185,80 @@ export default function TailSSHPage() {
       if (msg.type === 'output') {
         tr.term.write(msg.data);
       } else if (msg.type === 'status') {
-        const status = msg.status;
-        if (status === 'connected') {
+        const s = msg.status;
+        if (s === 'connected') {
           tr.term.write('\r\n\x1b[32m[已连接]\x1b[0m\r\n');
-        } else if (status === 'disconnected') {
+        } else if (s === 'disconnected') {
           tr.term.write('\r\n\x1b[31m[连接已断开]\x1b[0m\r\n');
-        } else if (status.startsWith('reconnecting')) {
-          tr.term.write(`\r\n\x1b[33m[${status}]\x1b[0m\r\n`);
-        } else if (status.startsWith('error')) {
-          tr.term.write(`\r\n\x1b[31m[${status}]\x1b[0m\r\n`);
+        } else if (s.startsWith('reconnecting')) {
+          tr.term.write(`\r\n\x1b[33m[${s}]\x1b[0m\r\n`);
+        } else if (s.startsWith('error') || s.startsWith('failed')) {
+          tr.term.write(`\r\n\x1b[31m[${s}]\x1b[0m\r\n`);
         }
+        refreshHosts();
       }
     };
   };
 
-  // ── Reconnect host ──
-  const reconnectHost = async (hostId: string) => {
-    await fetch(`${baseUrl}/api/hosts/${hostId}/reconnect`, { method: 'POST' });
-    if (currentHost === hostId) {
-      connectHost(hostId);
-    }
-  };
-
   // ── Delete host ──
-  const deleteHost = async (hostId: string) => {
-    if (!confirm(`确认删除主机 ${hostId}？`)) return;
+  const deleteHost = async (hostId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`确认删除 ${hostId}？`)) return;
     await fetch(`${baseUrl}/api/hosts/${hostId}`, { method: 'DELETE' });
     if (currentHost === hostId) {
       setCurrentHost(null);
       const tr = terminalRef.current;
-      if (tr) {
-        tr.term.clear();
-        tr.term.write('选择一台主机');
-      }
+      if (tr) { tr.term.clear(); tr.term.write('选择一台主机\r\n'); }
     }
     refreshHosts();
+  };
+
+  // ── Add host ──
+  const [newHost, setNewHost] = useState<NewHostForm>({
+    name: '',
+    tailscale_ip: '',
+    user: '',
+    port: '22',
+    key_file: '~/.ssh/id_ed25519',
+    auto_cmd: '',
+  });
+
+  const submitAddHost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError('');
+    setAddLoading(true);
+
+    const payload = {
+      name: newHost.name,
+      tailscale_ip: newHost.tailscale_ip,
+      user: newHost.user,
+      port: parseInt(newHost.port) || 22,
+      key_file: newHost.key_file,
+      auto_cmd: newHost.auto_cmd,
+      reconnect: true,
+      reconnect_interval: 10,
+      enabled: true,
+    };
+
+    try {
+      const res = await fetch(`${baseUrl}/api/hosts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: '添加失败' }));
+        setAddError(err.error || '添加失败');
+        setAddLoading(false);
+        return;
+      }
+      setShowAddModal(false);
+      setNewHost({ name: '', tailscale_ip: '', user: '', port: '22', key_file: '~/.ssh/id_ed25519', auto_cmd: '' });
+      refreshHosts();
+    } catch {
+      setAddError('网络错误');
+    }
+    setAddLoading(false);
   };
 
   const activeHost = hosts.find(h => h.id === currentHost);
@@ -246,17 +269,20 @@ export default function TailSSHPage() {
 
       <div className="flex flex-1 overflow-hidden bg-zinc-950">
         {/* Sidebar: Host list */}
-        <div
-          ref={hostListRef}
-          className="flex w-64 flex-shrink-0 flex-col border-r border-zinc-800 bg-zinc-900"
-        >
+        <div ref={hostListRef} className="flex w-64 flex-shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
           <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
             <h2 className="text-sm font-bold text-zinc-300">主机列表</h2>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="rounded bg-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-600"
+            >
+              + 添加
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
             {hosts.length === 0 ? (
               <div className="mt-8 text-center text-xs text-zinc-500">
-                暂无主机，请先在 Python 后端的 config.json 中配置
+                暂无主机
               </div>
             ) : (
               hosts.map(host => (
@@ -269,31 +295,17 @@ export default function TailSSHPage() {
                       : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300'
                   }`}
                 >
-                  <span
-                    className={`h-2 w-2 flex-shrink-0 rounded-full ${
-                      host.connected
-                        ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]'
-                        : 'bg-zinc-600'
-                    }`}
-                  />
+                  <span className={`h-2 w-2 flex-shrink-0 rounded-full ${host.connected ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]' : 'bg-zinc-600'}`} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">{host.name}</div>
                     <div className="truncate text-xs text-zinc-500">{host.tailscale_ip}:{host.port}</div>
                   </div>
-                  <div className="flex gap-1 opacity-0 transition group-hover:opacity-100">
-                    <button
-                      onClick={e => { e.stopPropagation(); reconnectHost(host.id); }}
-                      className="rounded border border-zinc-600 px-1.5 py-0.5 text-xs text-zinc-400 hover:border-yellow-600 hover:text-yellow-500"
-                    >
-                      ⟳
-                    </button>
-                    <button
-                      onClick={e => { e.stopPropagation(); deleteHost(host.id); }}
-                      className="rounded border border-zinc-600 px-1.5 py-0.5 text-xs text-zinc-400 hover:border-red-600 hover:text-red-500"
-                    >
-                      ✕
-                    </button>
-                  </div>
+                  <button
+                    onClick={(e) => deleteHost(host.id, e)}
+                    className="rounded px-1.5 py-0.5 text-xs text-zinc-500 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
+                  >
+                    ✕
+                  </button>
                 </div>
               ))
             )}
@@ -302,30 +314,65 @@ export default function TailSSHPage() {
 
         {/* Main: Terminal */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Connection status bar */}
           <div className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-2">
             <span className="flex-1 text-sm font-semibold text-zinc-300">
-              {activeHost
-                ? `${activeHost.name} · ${activeHost.tailscale_ip}`
-                : '选择一台主机'}
+              {activeHost ? `${activeHost.name} · ${activeHost.tailscale_ip}` : '选择一台主机'}
             </span>
-            <span
-              className={`rounded-full border px-3 py-0.5 text-xs font-semibold ${
-                wsStatus === 'connected'
-                  ? 'border-green-600 bg-green-900/30 text-green-400'
-                  : wsStatus === 'connecting'
-                  ? 'border-yellow-600 bg-yellow-900/30 text-yellow-400'
-                  : 'border-zinc-600 bg-zinc-800 text-zinc-500'
-              }`}
-            >
+            <span className={`rounded-full border px-3 py-0.5 text-xs font-semibold ${
+              wsStatus === 'connected' ? 'border-green-600 bg-green-900/30 text-green-400'
+                : wsStatus === 'connecting' ? 'border-yellow-600 bg-yellow-900/30 text-yellow-400'
+                : 'border-zinc-600 bg-zinc-800 text-zinc-500'
+            }`}>
               {wsStatus === 'connected' ? '已连接' : wsStatus === 'connecting' ? '连接中' : '未连接'}
             </span>
           </div>
-
-          {/* Terminal */}
           <div ref={containerRef} className="flex-1 overflow-hidden bg-black p-1" />
         </div>
       </div>
+
+      {/* Add Host Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-96 rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-zinc-200">添加主机</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-zinc-500 hover:text-zinc-300">✕</button>
+            </div>
+            <form onSubmit={submitAddHost} className="flex flex-col gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-zinc-400">名称</label>
+                <input required value={newHost.name} onChange={e => setNewHost({...newHost, name: e.target.value})} placeholder="sz服务器" className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-zinc-400">Tailscale IP</label>
+                <input required value={newHost.tailscale_ip} onChange={e => setNewHost({...newHost, tailscale_ip: e.target.value})} placeholder="100.112.35.71" className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500" />
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs text-zinc-400">用户</label>
+                  <input required value={newHost.user} onChange={e => setNewHost({...newHost, user: e.target.value})} placeholder="sz" className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500" />
+                </div>
+                <div className="w-24">
+                  <label className="mb-1 block text-xs text-zinc-400">端口</label>
+                  <input required value={newHost.port} onChange={e => setNewHost({...newHost, port: e.target.value})} placeholder="22" className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200" />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-zinc-400">SSH 密钥路径</label>
+                <input required value={newHost.key_file} onChange={e => setNewHost({...newHost, key_file: e.target.value})} className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-zinc-400">连接后执行命令（可选）</label>
+                <input value={newHost.auto_cmd} onChange={e => setNewHost({...newHost, auto_cmd: e.target.value})} placeholder="tmux" className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500" />
+              </div>
+              {addError && <div className="text-xs text-red-400">{addError}</div>}
+              <button type="submit" disabled={addLoading} className="mt-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-600 disabled:opacity-50">
+                {addLoading ? '添加中...' : '添加'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
