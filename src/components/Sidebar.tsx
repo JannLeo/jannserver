@@ -81,6 +81,7 @@ const navItems: [string, string, string, string][] = [
   ['/news', '📰', '新闻', '全球新闻聚合'],
   ['/trending', '🔥', '趋势', 'GitHub Trending'],
   ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
+  ['/tailssh', '🔌', 'SSH终端', 'Tailscale SSH 连接管理'],
 ];
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {

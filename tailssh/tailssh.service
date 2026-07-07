@@ -1,0 +1,22 @@
+# /etc/systemd/system/tailssh.service
+# 用法:
+#   sudo cp tailssh.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tailssh
+
+[Unit]
+Description=TailSSH Manager — Tailscale SSH 连接管理
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/1144097453/tailssh
+ExecStart=/usr/bin/python3 /home/1144097453/tailssh/tailsshd.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

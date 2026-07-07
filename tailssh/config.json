@@ -1,0 +1,42 @@
+{
+  "listen_host": "0.0.0.0",
+  "listen_port": 9222,
+  "hosts": [
+    {
+      "id": "100.112.35.71",
+      "name": "sz服务器",
+      "tailscale_ip": "100.112.35.71",
+      "user": "sz",
+      "port": 22,
+      "key_file": "~/.ssh/id_ed25519",
+      "auto_cmd": "tmux",
+      "reconnect": true,
+      "reconnect_interval": 10,
+      "enabled": true
+    },
+    {
+      "id": "100.83.245.24",
+      "name": "公司linux",
+      "tailscale_ip": "100.83.245.24",
+      "user": "test",
+      "port": 22,
+      "key_file": "~/.ssh/id_ed25519",
+      "auto_cmd": "tmux",
+      "reconnect": true,
+      "reconnect_interval": 10,
+      "enabled": true
+    },
+    {
+      "id": "100.112.232.110",
+      "name": "niuniu",
+      "tailscale_ip": "100.112.232.110",
+      "user": "1144097453",
+      "port": 22,
+      "key_file": "~/.ssh/id_ed25519",
+      "auto_cmd": "tmux",
+      "reconnect": true,
+      "reconnect_interval": 10,
+      "enabled": true
+    }
+  ]
+}
