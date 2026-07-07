@@ -40,7 +40,6 @@ export default function TailSSHPage() {
   const terminalRef = useRef<TerminalRef | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const hostListRef = useRef<HTMLDivElement>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addError, setAddError] = useState('');
   const [addLoading, setAddLoading] = useState(false);
@@ -267,42 +266,30 @@ export default function TailSSHPage() {
     <div className="flex h-full flex-col">
       <NavBar title="SSH 终端" />
 
-      <div className="flex flex-1 overflow-hidden bg-zinc-950">
-        {/* Sidebar: Host list */}
-        <div ref={hostListRef} className="flex w-64 flex-shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
-          <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-            <h2 className="text-sm font-bold text-zinc-300">主机列表</h2>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="rounded bg-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-600"
-            >
-              + 添加
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex flex-1 flex-col overflow-hidden bg-zinc-950">
+        {/* Host list strip - horizontal row at top */}
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-4 py-2">
+          <span className="flex-shrink-0 text-sm font-bold text-zinc-300">主机列表</span>
+          <div className="flex flex-1 items-center gap-2 overflow-x-auto py-1">
             {hosts.length === 0 ? (
-              <div className="mt-8 text-center text-xs text-zinc-500">
-                暂无主机
-              </div>
+              <span className="text-xs text-zinc-500">暂无主机</span>
             ) : (
               hosts.map(host => (
                 <div
                   key={host.id}
                   onClick={() => connectHost(host.id)}
-                  className={`group mb-1 flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition ${
+                  className={`group flex flex-shrink-0 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition ${
                     currentHost === host.id
                       ? 'bg-zinc-700 text-zinc-100'
-                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300'
+                      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
                   }`}
                 >
                   <span className={`h-2 w-2 flex-shrink-0 rounded-full ${host.connected ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]' : 'bg-zinc-600'}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{host.name}</div>
-                    <div className="truncate text-xs text-zinc-500">{host.tailscale_ip}:{host.port}</div>
-                  </div>
+                  <span className="text-sm font-semibold whitespace-nowrap">{host.name}</span>
+                  <span className="text-xs text-zinc-500 whitespace-nowrap">{host.tailscale_ip}:{host.port}</span>
                   <button
                     onClick={(e) => deleteHost(host.id, e)}
-                    className="rounded px-1.5 py-0.5 text-xs text-zinc-500 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
+                    className="ml-1 flex-shrink-0 rounded px-1 text-xs text-zinc-500 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
                   >
                     ✕
                   </button>
@@ -310,9 +297,15 @@ export default function TailSSHPage() {
               ))
             )}
           </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex-shrink-0 rounded bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600"
+          >
+            + 添加
+          </button>
         </div>
 
-        {/* Main: Terminal */}
+        {/* Terminal area */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-2">
             <span className="flex-1 text-sm font-semibold text-zinc-300">
