@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface SidebarProps {
   mobileOpen?: boolean;
@@ -115,11 +116,21 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
           (extraClasses ? ' ' + extraClasses : '')
         }
       >
-        {active && <span className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-teal-500" />}
-        <span className={'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl transition ' + (active ? 'bg-white/55' : 'bg-white/[0.06] group-hover:bg-white/[0.10]')}>
+        {/* Smooth active indicator bar — springs between nav items */}
+        <motion.span
+          layoutId="sidebarActiveBar"
+          className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-teal-500"
+          initial={false}
+          transition={{ type: 'spring', stiffness: 450, damping: 38 }}
+        />
+        <motion.span
+          whileHover={{ scale: active ? 1 : 1.06 }}
+          whileTap={{ scale: active ? 1 : 0.96 }}
+          className={'relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl transition ' + (active ? 'bg-white/55' : 'bg-white/[0.06] group-hover:bg-white/[0.10]')}
+        >
           {ICONS[emoji] || <span className="text-sm">{emoji}</span>}
-        </span>
-        {expanded && <span className="truncate text-sm font-bold">{label}</span>}
+        </motion.span>
+        {expanded && <span className="relative z-10 truncate text-sm font-bold">{label}</span>}
       </Link>
     );
   };
@@ -151,27 +162,36 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
           {expanded && (
             <>
               <span className="flex-1 truncate text-left text-sm font-bold">{config.label}</span>
-              <svg
+              <motion.svg
                 width="12"
                 height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.5"
-                className={`flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                animate={{ rotate: isOpen ? 180 : 0 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
               >
                 <polyline points="6 9 12 15 18 9" />
-              </svg>
+              </motion.svg>
             </>
           )}
         </button>
 
-        {/* Children */}
-        {expanded && isOpen && (
-          <div className="ml-3 mt-1 flex flex-col gap-0.5 border-l border-white/15 pl-3">
-            {config.children.map((child) => renderNavLink(child))}
-          </div>
-        )}
+        {/* Children — animated expand/collapse */}
+        <AnimatePresence initial={false}>
+          {expanded && isOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              className="ml-3 mt-1 flex flex-col gap-0.5 border-l border-white/15 pl-3 overflow-hidden"
+            >
+              {config.children.map((child) => renderNavLink(child))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   };
@@ -211,9 +231,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
           className="flex h-11 w-full items-center justify-center rounded-2xl text-teal-50/70 transition hover:bg-white/[0.08] hover:text-white"
         >
           <span className={'flex items-center gap-2 text-xs font-bold ' + (expanded ? 'px-3' : '')}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={expanded ? '' : 'rotate-180'}>
+            <motion.svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              animate={{ rotate: expanded ? 0 : 180 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            >
               <polyline points="15 18 9 12 15 6" />
-            </svg>
+            </motion.svg>
             {expanded && <span>收起导航</span>}
           </span>
         </button>

@@ -1,13 +1,20 @@
 'use client';
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import Sidebar from '@/components/Sidebar';
 import BottomNav from '@/components/BottomNav';
+import PageTransition from '@/components/PageTransition';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
-    <div className="relative z-10 flex min-h-screen overflow-hidden p-2 sm:p-3 lg:p-4">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      className="relative z-10 flex min-h-screen overflow-hidden p-2 sm:p-3 lg:p-4"
+    >
       <Sidebar mobileOpen={mobileSidebarOpen} onMobileClose={() => setMobileSidebarOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-stone-900/10 bg-[#fffaf1]/70 shadow-[0_30px_90px_rgba(39,32,24,0.10)] backdrop-blur-xl">
         <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-stone-900/10 bg-[#fffaf1]/78 px-4 sm:px-6">
@@ -33,13 +40,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-stone-900/10 bg-white/55 px-3 py-1.5 text-xs font-semibold text-stone-500 sm:flex">
-            <span className="h-2 w-2 rounded-full bg-teal-500 shadow-[0_0_0_4px_rgba(20,184,166,0.14)]" />
+            <motion.span
+              className="h-2 w-2 rounded-full bg-teal-500 shadow-[0_0_0_4px_rgba(20,184,166,0.14)]"
+              animate={{ scale: [1, 1.3, 1] }}
+              transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+            />
             Ready
           </div>
         </header>
-        <main className="h-[calc(100vh-5.5rem)] overflow-auto pb-14 sm:pb-0 sm:h-[calc(100vh-6.5rem)] lg:h-[calc(100vh-7rem)]">{children}</main>
+        <main className="h-[calc(100vh-5.5rem)] overflow-auto pb-14 sm:pb-0 sm:h-[calc(100vh-6.5rem)] lg:h-[calc(100vh-7rem)]">
+          <PageTransition>{children}</PageTransition>
+        </main>
       </div>
       <BottomNav />
-    </div>
+    </motion.div>
   );
 }
