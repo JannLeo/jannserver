@@ -86,7 +86,7 @@ const navItems: [string, string, string, string][] = [
 export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
-  const [openSubMenu, setOpenSubMenu] = useState<string | null>('study');
+  const [openSubMenu, setOpenSubMenu] = useState<string | null>(null);
 
   // Close on route change (mobile)
   useEffect(() => {

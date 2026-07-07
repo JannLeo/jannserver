@@ -32,7 +32,7 @@ module.exports = {
         ALLOW_HTTP_COOKIES: env.ALLOW_HTTP_COOKIES || 'true',
         AI_BASE_URL: env.AI_BASE_URL || 'http://127.0.0.1:12345/v1',
         AI_MODEL: env.AI_MODEL || 'MiniMax-M2.7',
-        AI_API_KEY: env.AI_API_KEY || secrets.AI_API_KEY || '',
+        AI_API_KEY: env.AI_API_KEY || 'sk-2GwGk0i5ngO504uX6eXhl20hMFbsVsFsAZL6d3MpyJDIEHny',
         MEDIA_CRAWLER_BASE_URL: env.MEDIA_CRAWLER_BASE_URL || 'http://127.0.0.1:8080',
         MEDIA_CRAWLER_ENABLED: env.MEDIA_CRAWLER_ENABLED || 'true',
         OBSIDIAN_VAULT_DIR: env.OBSIDIAN_VAULT_DIR || '/home/sz/workspace/data/obsidian-vault',

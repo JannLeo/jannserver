@@ -1,4 +1,6 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
+import http from 'http';
 import { proxyFetchText } from '@/lib/proxy-fetch';
 import { sqlite } from '@/lib/db/index';
 
@@ -212,12 +214,86 @@ function isEnglish(text: string): boolean {
 }
 
 /**
- * Translate a single text via MyMemory API (through proxy).
+ * Translate a single text via AI (bypasses proxy issues).
+ * Falls back to original text on any error.
  */
 async function translateText(text: string): Promise<string> {
   const cached = translateCache.get(text);
   if (cached) return cached;
 
+  const aiBaseUrl = (process.env.AI_BASE_URL || '').trim();
+  const aiApiKey = (process.env.AI_API_KEY || '').trim();
+  const aiModel = (process.env.AI_MODEL || '').trim();
+
+  console.log('[translate] baseUrl=' + aiBaseUrl + ' model=' + aiModel + ' keyLen=' + aiApiKey.length);
+
+  if (!aiBaseUrl || !aiApiKey || !aiModel) {
+    // fallback: try MyMemory (limited quota)
+    return translateTextFallback(text);
+  }
+
+  const body = JSON.stringify({
+    model: aiModel,
+    messages: [
+      { role: 'system', content: 'You are a professional translator. Translate the following English text to simplified Chinese. Reply ONLY with the translated text, nothing else.' },
+      { role: 'user', content: text.slice(0, 500) },
+    ],
+    temperature: 0.1,
+    max_tokens: 200,
+  });
+
+  try {
+    const result = await new Promise<string>((resolve, reject) => {
+      const url = new URL(`${aiBaseUrl}/chat/completions`);
+      const proxy = process.env.HTTP_PROXY;
+      let hostname = url.hostname;
+      let port = url.port || (url.protocol === 'https:' ? '443' : '80');
+      let path = url.pathname + url.search;
+      if (proxy && !['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+        try {
+          const proxyUrl = new URL(proxy);
+          hostname = proxyUrl.hostname;
+          port = proxyUrl.port || (proxyUrl.protocol === 'https:' ? '443' : '80');
+          path = `${url.protocol}//${url.host}${url.pathname}${url.search}`;
+        } catch {}
+      }
+      const req = http.request({
+        hostname, port, path,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${aiApiKey}`,
+          'Content-Type': 'application/json',
+          'Host': url.host,
+          'Content-Length': Buffer.byteLength(body),
+        },
+      }, (res) => {
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode !== 200) { resolve(text); return; }
+          try {
+            const parsed = JSON.parse(data);
+            const translated = parsed.choices?.[0]?.message?.content?.trim() || text;
+            console.log('[translate] result=' + translated.slice(0, 100));
+            resolve(translated);
+          } catch(e) { resolve(text); }
+        });
+      });
+      req.on('error', (e) => { console.log('[translate] req error: ' + e.message); resolve(text); });
+      req.setTimeout(15000, () => { req.destroy(); resolve(text); });
+      req.write(body);
+      req.end();
+    });
+    translateCache.set(text, result);
+    return result;
+  } catch {
+    return translateTextFallback(text);
+  }
+}
+
+/** Fallback: try MyMemory (limited quota). */
+async function translateTextFallback(text: string): Promise<string> {
   try {
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 500))}&langpair=en|zh-CN`;
     const raw = await proxyFetchText(url, 8000);
@@ -227,9 +303,7 @@ async function translateText(text: string): Promise<string> {
       translateCache.set(text, translated);
       return translated;
     }
-  } catch {
-    // fallback to original
-  }
+  } catch { /* fallthrough */ }
   return text;
 }
 
@@ -287,6 +361,7 @@ export async function GET(req: Request) {
           source: r.source,
           pubDate: r.pub_date ?? r.cached_at,
           description: r.description ?? '',
+          _isTranslated: !!r.is_translated,
         }));
 
         // If cache is stale, return cached content immediately + trigger background refresh
@@ -296,7 +371,28 @@ export async function GET(req: Request) {
           return Response.json({ items, fetchedAt: latestCachedAt, total: items.length, cached: true, refreshing: true });
         }
 
-        return Response.json({ items, fetchedAt: latestCachedAt, total: items.length, cached: true });
+        // Even if cached, re-translate items that haven't been translated yet
+        // Capture original English titles BEFORE translateItems mutates them
+        const untranslatedItems = items.filter((it: any) => !it._isTranslated);
+        const translatedMap: Map<string, NewsItem> = new Map();
+        if (untranslatedItems.length > 0) {
+          // Save original English titles
+          const origTitles = untranslatedItems.map((it: any) => it.title as string);
+          const translated = await translateItems(untranslatedItems as NewsItem[]);
+          // translated[i] corresponds to untranslatedItems[i] which has origTitles[i]
+          for (let i = 0; i < translated.length; i++) {
+            translatedMap.set(origTitles[i], translated[i]);
+          }
+        }
+        const finalItems = items.map((it: any) => {
+          if (!it._isTranslated) {
+            const replacement = translatedMap.get(it.title);
+            if (replacement) return replacement;
+          }
+          return it;
+        });
+
+        return Response.json({ items: finalItems, fetchedAt: latestCachedAt, total: finalItems.length, cached: true });
       }
     } catch { /* cache miss → fall through to live fetch */ }
   }

@@ -9,11 +9,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
-    <motion.div
+<motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="relative z-10 flex min-h-screen overflow-hidden p-2 sm:p-3 lg:p-4"
+      className="relative z-10 flex min-h-screen overflow-y-auto p-2 sm:p-3 lg:p-4"
     >
       <Sidebar mobileOpen={mobileSidebarOpen} onMobileClose={() => setMobileSidebarOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-stone-900/10 bg-[#fffaf1]/70 shadow-[0_30px_90px_rgba(39,32,24,0.10)] backdrop-blur-xl">

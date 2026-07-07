@@ -11,13 +11,6 @@ interface Task {
   completedAt?: string | null;
 }
 
-interface RepoStat {
-  id: number;
-  name: string;
-  lastSyncAt: string | null;
-  documentCount: number;
-}
-
 interface UsageSummary {
   balance: number | null;
   usedToday: number | null;
@@ -34,19 +27,7 @@ interface DailySummaryData {
   error?: string;
 }
 
-interface ActivityData {
-  repos: any[];
-  totalCommits: number;
-}
 
-interface DashboardData {
-  todayDate: string;
-  todayTasks: Task[];
-  undoneTasks: Task[];
-  repos: RepoStat[];
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 function getGreeting(hour: number): string {
   if (hour < 6) return '夜深了';
   if (hour < 12) return '早上好';
@@ -146,25 +127,35 @@ function UsageSection({ summary }: { summary: UsageSummary | null }) {
 /**
  * Extracts the AI summary content from the full daily markdown.
  *
- * Stops at the FIRST occurrence of any of these to avoid capturing
- * template sections or duplicate headers:
- *   - \n#   (any h1 heading — template has `# YYYY-MM-DD`)
- *   - \n##  (any h2 heading — template has `## 今日重点` etc.)
- *   - \n--- (markdown horizontal rule separating AI summary from template)
- *   - end of string
+ * Two possible formats:
+ * 1. Old: "## AI 总结\n\n..." ending at --- or ## or end
+ * 2. New: AI output stored directly; strip the "## AI 总结" line itself
+ *    (the h1 heading that follows is the start of the AI report content)
  */
-const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n# |\n---|\n## |$)/;
+const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n## |\n---|\n# [A-Z]|$)/;
 
 function extractSummary(text: string): string | null {
+  // Format 1: has ## AI 总结 header
   const match = text.match(AI_SUMMARY_RE);
   if (match) {
-    // Trim the "## AI 总结" header, and any trailing horizontal rules or blank lines
-    return match[0]
+    const raw = match[0]
       .replace(/^## AI 总结\s*\n?/, '')
       .replace(/\n---\s*$/, '')
-      .replace(/\n# \d{4}-\d{2}-\d{2}\s*$/, '')
       .trim();
+    if (raw.length > 0) return raw;
   }
+
+  // Format 2: strip the first h1 header (AI 总结 marker line) and return everything else
+  // The "## AI 总结" section contains an h1 like "# YYYY-MM-DD 工作日报"
+  // which is the start of the actual AI content — remove the AI总结 section header only
+  const withoutMarker = text.replace(/^## AI 总结\n+/, '');
+  const cleaned = withoutMarker
+    .replace(/^# \d{4}-\d{2}-\d{2}[^\n]*\n?/, '') // remove first h1 "# YYYY-MM-DD ...\n"
+    .trim();
+  if (cleaned.length > 0) {
+    return cleaned.length > 500 ? cleaned.slice(0, 500) + '…' : cleaned;
+  }
+
   return null;
 }
 
@@ -337,16 +328,40 @@ function AskSection({ todayDate }: { todayDate: string }) {
 }
 
 // ─── Overview Section ────────────────────────────────────────────────────────
-function OverviewSection({ tasks }: { tasks: Task[] }) {
+function OverviewSection({ tasks, todayDate }: { tasks: Task[]; todayDate: string }) {
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const runAnalysis = async () => {
+    setAnalyzing(true);
+    try {
+      const res = await fetch('/api/ai/task-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks }),
+      });
+      const data = await res.json();
+      if (data.analysis) setAnalysis(data.analysis);
+    } catch {}
+    setAnalyzing(false);
+  };
+
+  useEffect(() => {
+    if (tasks.length > 0 && !analysis) runAnalysis();
+  }, [todayDate]);
+
+  const doneCount = tasks.filter(t => t.status === 'done').length;
+  const highPriority = tasks.filter(t => t.priority === 'high' && t.status !== 'done');
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">今日任务</h2>
-        <span className="text-xs font-bold text-stone-500">{tasks.filter(t => t.status === 'done').length}/{tasks.length}</span>
+        <span className="text-xs font-bold text-stone-500">{doneCount}/{tasks.length}</span>
       </div>
       {tasks.length > 0 ? (
         <div className="space-y-1.5">
-          {tasks.slice(0, 6).map(task => (
+          {tasks.slice(0, 4).map(task => (
             <div key={task.id} className="flex items-center gap-2">
               <span className={`w-1.5 h-1.5 rounded-full ${task.status === 'done' ? 'bg-teal-500' : task.priority === 'high' ? 'bg-red-400' : 'bg-stone-300'}`} />
               <span className={`text-xs ${task.status === 'done' ? 'line-through text-stone-400' : 'text-stone-700'}`}>{task.title}</span>
@@ -354,27 +369,64 @@ function OverviewSection({ tasks }: { tasks: Task[] }) {
           ))}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-stone-300 bg-white/30 p-6 text-center">
+        <div className="rounded-2xl border border-dashed border-stone-300 bg-white/30 p-4 text-center">
           <p className="text-xs text-stone-500">今天还没有任务</p>
-          <Link href="/tasks" className="mt-2 inline-block text-xs font-bold text-teal-700 hover:underline">去创建 →</Link>
+          <Link href="/tasks" className="mt-1 inline-block text-xs font-bold text-teal-700 hover:underline">去创建 →</Link>
+        </div>
+      )}
+
+      {/* AI Task Analysis */}
+      {highPriority.length > 0 && (
+        <div className="mt-2">
+          {analyzing ? (
+            <p className="text-[10px] text-teal-600 animate-pulse">🤖 AI 分析中…</p>
+          ) : analysis ? (
+            <div className="mt-1 p-2 rounded-xl bg-teal-50/60 border border-teal-200/60">
+              <p className="text-[10px] font-bold text-teal-700 mb-0.5">🤖 AI 优先级建议</p>
+              <p className="text-[10px] text-stone-600 leading-relaxed">{analysis}</p>
+            </div>
+          ) : (
+            <button onClick={runAnalysis} className="mt-1 text-[10px] font-bold text-teal-600 hover:underline">
+              🤖 AI 分析优先级
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Activity Section ────────────────────────────────────────────────────────
-function ActivitySection({ data }: { data: ActivityData | null }) {
-  if (!data) return null;
-  const totalCommits = data.totalCommits;
+// ─── Trending Section ────────────────────────────────────────────────────────
+function TrendingSection() {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/trending')
+      .then(r => r.json())
+      .then(d => { setItems(d.repos ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="animate-pulse h-32 rounded-2xl bg-stone-100" />;
+  if (items.length === 0) return <p className="text-xs text-stone-400">暂无趋势</p>;
 
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">活动概览</h2>
-      <div className="grid grid-cols-2 gap-2">
-        <StatBadge label="今日提交" value={totalCommits} tone="text-teal-700" />
-        <StatBadge label="仓库数量" value={data.repos?.length || 0} tone="text-stone-800" />
-      </div>
+      {items.slice(0, 5).map((item: any, idx: number) => (
+        <div key={idx} className="flex items-start gap-2">
+          <span className="text-[10px] font-black text-stone-400 w-4">{idx + 1}</span>
+          <a
+            href={`https://github.com${item.href}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-bold text-stone-700 hover:text-[#173f3c] line-clamp-2 leading-snug"
+          >
+            <span className="text-teal-700">{item.name?.split('/')[1]}</span>
+            {' '}<span className="font-normal">{item.description || '无描述'}</span>
+          </a>
+        </div>
+      ))}
     </div>
   );
 }
@@ -382,24 +434,18 @@ function ActivitySection({ data }: { data: ActivityData | null }) {
 // ─── Top Section ─────────────────────────────────────────────────────────────
 function TopSection({ todayDate }: { todayDate: string }) {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
-  const [activity, setActivity] = useState<ActivityData | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [undoneTasks, setUndoneTasks] = useState<Task[]>([]);
-  const [repos, setRepos] = useState<RepoStat[]>([]);
 
   useEffect(() => {
     Promise.all([
       fetch('/api/usage').then(r => r.json()).catch(() => null),
-      fetch('/api/activity/today').then(r => r.json()).catch(() => null),
       fetch('/api/tasks?limit=50').then(r => r.json()).catch(() => ({ tasks: [] })),
-      fetch('/api/repos').then(r => r.json()).catch(() => ({ repos: [] })),
-    ]).then(([u, a, t, r]) => {
+    ]).then(([u, t]) => {
       if (u && u.ok) setUsage(u);
-      if (a && a.ok) setActivity(a);
-      const taskList: Task[] = t.tasks ?? [];
+      const taskList: Task[] = Array.isArray(t) ? t : (t?.tasks ?? []);
       setTasks(taskList);
       setUndoneTasks(taskList.filter((tk: Task) => tk.status !== 'done'));
-      setRepos(r.repos ?? []);
     });
   }, [todayDate]);
 
@@ -430,47 +476,34 @@ function TopSection({ todayDate }: { todayDate: string }) {
         <UsageSection summary={usage} />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-2">
         {/* Daily Summary */}
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
           <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">AI 日总结</h2>
           <DailySummarySection todayDate={todayDate} />
         </div>
 
-        {/* Today's Questions */}
+        {/* Overview with AI Task Analysis */}
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <AskSection todayDate={todayDate} />
-        </div>
-
-        {/* Overview */}
-        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <OverviewSection tasks={tasks} />
+          <OverviewSection tasks={tasks} todayDate={todayDate} />
         </div>
       </div>
 
-      {/* Activity */}
-      <div className="mt-4 rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-        <ActivitySection data={activity} />
-      </div>
+      
     </section>
   );
 }
 
 // ─── Bottom Section ──────────────────────────────────────────────────────────
 function BottomSection({ todayDate }: { todayDate: string }) {
-  const [repos, setRepos] = useState<RepoStat[]>([]);
   const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/repos').then(r => r.json()).catch(() => ({ repos: [] })),
-      fetch('/api/news').then(r => r.json()).catch(() => ({ articles: [] })),
-    ]).then(([r, n]) => {
-      setRepos(r.repos ?? []);
-      setNews(n.articles ?? []);
-      setLoading(false);
-    });
+    fetch('/api/news')
+      .then(r => r.json())
+      .then(n => { setNews(n.items ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
   }, [todayDate]);
 
   if (loading) {
@@ -484,31 +517,19 @@ function BottomSection({ todayDate }: { todayDate: string }) {
     );
   }
 
-  const syncRepos = repos.filter(r => r.lastSyncAt);
-  const unsyncRepos = repos.filter(r => !r.lastSyncAt);
-
   return (
     <section>
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Inbox / New Notes */}
+        {/* Trending */}
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-            <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">Repos</h2>
-            {syncRepos.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {syncRepos.slice(0, 4).map(repo => (
-                  <div key={repo.id} className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-stone-700">{repo.name}</span>
-                    <span className="text-[10px] text-stone-400">{repo.documentCount} 文档</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-stone-400">还没有同步仓库</p>
-            )}
-            {unsyncRepos.length > 0 && (
-              <p className="mt-2 text-[10px] text-amber-600">{unsyncRepos.length} 个仓库未同步</p>
-            )}
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">📈 趋势</h2>
+              <Link href="/trending" className="text-[10px] font-bold text-teal-700 hover:underline">更多 →</Link>
+            </div>
+            <div className="mt-3">
+              <TrendingSection />
+            </div>
           </div>
         </div>
 
@@ -562,6 +583,11 @@ export default function DashboardPage({ initialData }: { initialData: DashboardI
         </div>
 
         <TopSection todayDate={todayDate} />
+
+        {/* Full-width Ask Section */}
+        <div className="mt-6 rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+          <AskSection todayDate={todayDate} />
+        </div>
 
         <div className="mt-6">
           <BottomSection todayDate={todayDate} />

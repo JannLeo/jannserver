@@ -1,0 +1,226 @@
+[07-07 01:40] === Feature check ===
+[01:41] ✅ AI问答 OK
+[01:41] ✅ 小说生成 OK
+[01:41] ✅ 视频爬虫 OK
+[01:41] === Check done ===
+[07-07 01:45] === Feature check ===
+[01:45] ❌ AI问答 FAIL — rebuilding
+
+[01:45] ✅ 小说生成 OK
+[01:45] ✅ 视频爬虫 OK
+[01:45] === Check done ===
+[07-07 02:00] === Feature check ===
+[02:00] ❌ AI问答 FAIL — rebuilding
+
+[02:00] ❌ 小说创建 FAIL
+[02:00] ❌ 视频爬虫 FAIL
+
+[02:00] === Check done ===
+[07-07 02:15] === Feature check ===
+[02:15] ✅ AI问答 OK
+[02:15] ✅ 小说生成 OK
+[02:15] ✅ 视频爬虫 OK
+[02:15] === Check done ===
+[07-07 02:30] === Feature check ===
+[02:30] ✅ AI问答 OK
+[02:30] ✅ 小说生成 OK
+[02:30] ✅ 视频爬虫 OK
+[02:30] === Check done ===
+[07-07 02:45] === Feature check ===
+[02:45] ✅ AI问答 OK
+[02:45] ✅ 小说生成 OK
+[02:45] ✅ 视频爬虫 OK
+[02:45] === Check done ===
+[07-07 03:00] === Feature check ===
+[03:00] ❌ AI问答 FAIL — rebuilding
+
+[03:00] ✅ 小说生成 OK
+[03:00] ✅ 视频爬虫 OK
+[03:00] === Check done ===
+[07-07 03:15] === Feature check ===
+[03:15] ✅ AI问答 OK
+[03:15] ✅ 小说生成 OK
+[03:15] ✅ 视频爬虫 OK
+[03:15] === Check done ===
+[07-07 03:30] === Feature check ===
+[03:30] ❌ AI问答 FAIL — rebuilding
+
+[03:30] ✅ 小说生成 OK
+[03:30] ✅ 视频爬虫 OK
+[03:30] === Check done ===
+[07-07 03:45] === Feature check ===
+[03:45] ✅ AI问答 OK
+[03:45] ✅ 小说生成 OK
+[03:45] ✅ 视频爬虫 OK
+[03:45] === Check done ===
+[07-07 04:00] === Feature check ===
+[04:00] ✅ AI问答 OK
+[04:00] ❌ 小说生成 FAIL
+
+[04:00] ❌ 视频爬虫 FAIL
+
+[04:00] === Check done ===
+[07-07 04:15] === Feature check ===
+[04:15] ✅ AI问答 OK
+[04:15] ✅ 小说生成 OK
+[04:15] ✅ 视频爬虫 OK
+[04:15] === Check done ===
+[07-07 04:30] === Feature check ===
+[04:30] ✅ AI问答 OK
+[04:30] ✅ 小说生成 OK
+[04:30] ✅ 视频爬虫 OK
+[04:30] === Check done ===
+[07-07 04:45] === Feature check ===
+[04:45] ✅ AI问答 OK
+[04:45] ✅ 小说生成 OK
+[04:45] ✅ 视频爬虫 OK
+[04:45] === Check done ===
+[07-07 05:00] === Feature check ===
+[05:00] ✅ AI问答 OK
+[05:00] ✅ 小说生成 OK
+[05:00] ✅ 视频爬虫 OK
+[05:00] === Check done ===
+[07-07 05:15] === Feature check ===
+[05:15] ✅ AI问答 OK
+[05:15] ✅ 小说生成 OK
+[05:15] ✅ 视频爬虫 OK
+[05:15] === Check done ===
+[07-07 05:30] === Feature check ===
+[05:30] ✅ AI问答 OK
+[05:30] ✅ 小说生成 OK
+[05:30] ✅ 视频爬虫 OK
+[05:30] === Check done ===
+[07-07 05:45] === Feature check ===
+[05:45] ✅ AI问答 OK
+[05:45] ✅ 小说生成 OK
+[05:45] ✅ 视频爬虫 OK
+[05:45] === Check done ===
+[07-07 06:00] === Feature check ===
+[06:00] ✅ AI问答 OK
+[06:00] ✅ 小说生成 OK
+[06:00] ✅ 视频爬虫 OK
+[06:00] === Check done ===
+[07-07 06:15] === Feature check ===
+[06:15] ✅ AI问答 OK
+[06:15] ✅ 小说生成 OK
+[06:15] ✅ 视频爬虫 OK
+[06:15] === Check done ===
+[07-07 06:30] === Feature check ===
+[06:30] ✅ AI问答 OK
+[06:30] ✅ 小说生成 OK
+[06:30] ✅ 视频爬虫 OK
+[06:30] === Check done ===
+[07-07 06:45] === Feature check ===
+[06:45] ✅ AI问答 OK
+[06:45] ✅ 小说生成 OK
+[06:45] ✅ 视频爬虫 OK
+[06:45] === Check done ===
+[07-07 07:00] === Feature check ===
+[07:00] ✅ AI问答 OK
+[07:00] ✅ 小说生成 OK
+[07:00] ✅ 视频爬虫 OK
+[07:00] === Check done ===
+[07-07 07:15] === Feature check ===
+[07:15] ✅ AI问答 OK
+[07:15] ✅ 小说生成 OK
+[07:15] ✅ 视频爬虫 OK
+[07:15] === Check done ===
+[07-07 07:30] === Feature check ===
+[07:30] ❌ AI问答 FAIL — rebuilding
+
+[07:30] ❌ 小说创建 FAIL
+[07:30] ❌ 视频爬虫 FAIL
+
+[07:30] === Check done ===
+[07-07 07:45] === Feature check ===
+[07:45] ✅ AI问答 OK
+[07:45] ✅ 小说生成 OK
+[07:45] ✅ 视频爬虫 OK
+[07:45] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 08: value too great for base (error token is "08")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 08:00] === Feature check ===
+[08:00] ✅ AI问答 OK
+[08:00] ❌ 小说生成 FAIL
+
+[08:00] ❌ 视频爬虫 FAIL
+
+[08:00] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 08: value too great for base (error token is "08")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 08:15] === Feature check ===
+[08:15] ✅ AI问答 OK
+[08:15] ✅ 小说生成 OK
+[08:15] ✅ 视频爬虫 OK
+[08:15] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 08: value too great for base (error token is "08")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 08:30] === Feature check ===
+[08:30] ✅ AI问答 OK
+[08:30] ✅ 小说生成 OK
+[08:30] ✅ 视频爬虫 OK
+[08:30] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 08: value too great for base (error token is "08")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 08:45] === Feature check ===
+[08:45] ✅ AI问答 OK
+[08:45] ✅ 小说生成 OK
+[08:45] ✅ 视频爬虫 OK
+[08:45] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 09: value too great for base (error token is "09")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 09:00] === Feature check ===
+[09:00] ✅ AI问答 OK
+[09:00] ❌ 小说生成 FAIL
+
+[09:00] ❌ 视频爬虫 FAIL
+
+[09:00] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 09: value too great for base (error token is "09")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 09:15] === Feature check ===
+[09:15] ✅ AI问答 OK
+[09:15] ✅ 小说生成 OK
+[09:15] ✅ 视频爬虫 OK
+[09:15] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 09: value too great for base (error token is "09")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 09:30] === Feature check ===
+[09:30] ✅ AI问答 OK
+[09:30] ❌ 小说生成 FAIL
+
+[09:30] ❌ 视频爬虫 FAIL
+
+[09:30] === Check done ===
+/home/sz/workspace/scripts/feature-cron-check.sh: line 10: 09: value too great for base (error token is "09")
+/home/sz/workspace/scripts/feature-cron-check.sh: line 13: [: -ge: unary operator expected
+[07-07 09:45] === Feature check ===
+[09:45] ✅ AI问答 OK
+[09:45] ✅ 小说生成 OK
+[09:45] ✅ 视频爬虫 OK
+[09:45] === Check done ===
+[Tue Jul  7 10:00:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 10:15:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 10:30:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 10:45:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 11:00:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 11:15:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 11:30:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 11:45:01 AM CST 2026] Stopping — past 10:00
+[Tue Jul  7 12:00:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 12:15:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 12:30:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 12:45:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 01:00:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 01:15:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 01:30:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 01:45:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 02:00:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 02:15:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 02:30:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 02:45:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 03:00:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 03:15:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 03:30:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 03:45:01 PM CST 2026] Stopping — past 10:00
+[Tue Jul  7 04:00:01 PM CST 2026] Stopping — past 10:00
