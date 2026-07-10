@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import NavBar from '@/components/NavBar';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 /* ─── Knowledge Tabs ─────────────────────────────────────────────────────────── */
 type Tab = 'repos' | 'code' | 'projects' | 'wiki';
@@ -300,7 +302,7 @@ export default function KnowledgeAskPage() {
               <>
                 <div className="rounded-xl border border-stone-100 p-3">
                   <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">回答</h3>
-                  <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{result.answer}</div>
+                  <div className="text-xs text-slate-700 leading-relaxed"><ReactMarkdown remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown></div>
                 </div>
 
                 {/* Sources */}

@@ -48,7 +48,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             Ready
           </div>
         </header>
-        <main className="h-[calc(100vh-5.5rem)] overflow-auto pb-14 sm:pb-0 sm:h-[calc(100vh-6.5rem)] lg:h-[calc(100vh-7rem)]">
+        <main className="h-[calc(100vh-5.5rem)] overflow-auto pb-16 sm:pb-0 sm:h-[calc(100vh-6.5rem)] lg:h-[calc(100vh-7rem)]">
           <PageTransition>{children}</PageTransition>
         </main>
       </div>

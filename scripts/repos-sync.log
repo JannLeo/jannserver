@@ -1,0 +1,60 @@
+[2026-07-08 08:00:01] === Repos Sync ===
+Fetching GitHub repos...
+Found 15 repos, 15 new to sync
+Error: The module '/home/sz/workspace/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 127. This version of Node.js requires
+NODE_MODULE_VERSION 109. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+    at Module._extensions..node (node:internal/modules/cjs/loader:1452:18)
+    at Module.load (node:internal/modules/cjs/loader:1197:32)
+    at Module._load (node:internal/modules/cjs/loader:1013:12)
+    at Module.require (node:internal/modules/cjs/loader:1225:19)
+    at require (node:internal/modules/helpers:177:18)
+    at bindings (/home/sz/workspace/node_modules/bindings/bindings.js:112:48)
+    at new Database (/home/sz/workspace/node_modules/better-sqlite3/lib/database.js:48:64)
+    at getDb (file:///home/sz/workspace/scripts/sync-all-repos.mjs:22:14)
+    at repoExists (file:///home/sz/workspace/scripts/sync-all-repos.mjs:28:14)
+    at main (file:///home/sz/workspace/scripts/sync-all-repos.mjs:170:24) {
+  code: 'ERR_DLOPEN_FAILED'
+}
+[2026-07-09 08:00:01] === Repos Sync ===
+Fetching GitHub repos...
+Found 15 repos, 15 new to sync
+Error: The module '/home/sz/workspace/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 127. This version of Node.js requires
+NODE_MODULE_VERSION 109. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+    at Module._extensions..node (node:internal/modules/cjs/loader:1452:18)
+    at Module.load (node:internal/modules/cjs/loader:1197:32)
+    at Module._load (node:internal/modules/cjs/loader:1013:12)
+    at Module.require (node:internal/modules/cjs/loader:1225:19)
+    at require (node:internal/modules/helpers:177:18)
+    at bindings (/home/sz/workspace/node_modules/bindings/bindings.js:112:48)
+    at new Database (/home/sz/workspace/node_modules/better-sqlite3/lib/database.js:48:64)
+    at getDb (file:///home/sz/workspace/scripts/sync-all-repos.mjs:22:14)
+    at repoExists (file:///home/sz/workspace/scripts/sync-all-repos.mjs:28:14)
+    at main (file:///home/sz/workspace/scripts/sync-all-repos.mjs:170:24) {
+  code: 'ERR_DLOPEN_FAILED'
+}
+[2026-07-10 08:00:01] === Repos Sync ===
+Fetching GitHub repos...
+Found 15 repos, 15 new to sync
+Error: The module '/home/sz/workspace/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 127. This version of Node.js requires
+NODE_MODULE_VERSION 109. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+    at Module._extensions..node (node:internal/modules/cjs/loader:1452:18)
+    at Module.load (node:internal/modules/cjs/loader:1197:32)
+    at Module._load (node:internal/modules/cjs/loader:1013:12)
+    at Module.require (node:internal/modules/cjs/loader:1225:19)
+    at require (node:internal/modules/helpers:177:18)
+    at bindings (/home/sz/workspace/node_modules/bindings/bindings.js:112:48)
+    at new Database (/home/sz/workspace/node_modules/better-sqlite3/lib/database.js:48:64)
+    at getDb (file:///home/sz/workspace/scripts/sync-all-repos.mjs:22:14)
+    at repoExists (file:///home/sz/workspace/scripts/sync-all-repos.mjs:28:14)
+    at main (file:///home/sz/workspace/scripts/sync-all-repos.mjs:170:24) {
+  code: 'ERR_DLOPEN_FAILED'
+}

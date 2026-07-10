@@ -2,7 +2,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 
 interface SidebarProps {
   mobileOpen?: boolean;
@@ -72,6 +71,7 @@ const hiddenHrefs = new Set(Object.values(SUB_MENUS).flatMap((m) => m.children.m
 const DASHBOARD_ITEM: [string, string, string, string] = ['/dashboard', '🏠', '工作台', '工作台'];
 
 const navItems: [string, string, string, string][] = [
+  ['/tailssh', '🔌', 'Terminal', 'SSH 终端'],
   ['/daily', '📅', 'Daily', '每日记录'],
   ['/knowledge-ask', '📚', '知识问答', '文档·代码·项目·Wiki·AI问答'],
   ['/usage', '💳', '用量', 'AI 使用情况'],
@@ -81,13 +81,23 @@ const navItems: [string, string, string, string][] = [
   ['/news', '📰', '新闻', '全球新闻聚合'],
   ['/trending', '🔥', '趋势', 'GitHub Trending'],
   ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
-  ['/tailssh', '🔌', 'SSH终端', 'Tailscale SSH 连接管理'],
-];
+  ['/voice', '🎤', '语音助手', 'AI 语音对话'],
+  ];
+
+  // ── AI 整合仓库（由 integration-agent.js 动态写入） ──
+  // 此数组会被 addToSidebar() 函数追加条目
+  const integratedNavItems: [string, string, string, string][] = [
+    ['/herdr', '🔗', 'herdr', '终端 AI Agent 工作流'],
+    ['/ZhuLinsen_daily_stock_analysis', '📊', '股票分析', 'AI 股票智能分析'],
+    ['/shadcn_ui_ui', '🎨', 'shadcn UI', 'UI 组件展示'],
+    ['/asgeirtj_system_prompts_leaks', '📦', 'Prompt 安全', 'System Prompt 泄露检测'],
+  ];
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
-  const [openSubMenu, setOpenSubMenu] = useState<string | null>(null);
+    const [openSubMenu, setOpenSubMenu] = useState<string | null>(null);
+    const [openIntegrations, setOpenIntegrations] = useState(true);
 
   // Close on route change (mobile)
   useEffect(() => {
@@ -117,21 +127,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
           (extraClasses ? ' ' + extraClasses : '')
         }
       >
-        {/* Smooth active indicator bar — springs between nav items */}
-        <motion.span
-          layoutId="sidebarActiveBar"
-          className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-teal-500"
-          initial={false}
-          transition={{ type: 'spring', stiffness: 450, damping: 38 }}
-        />
-        <motion.span
-          whileHover={{ scale: active ? 1 : 1.06 }}
-          whileTap={{ scale: active ? 1 : 0.96 }}
-          className={'relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl transition ' + (active ? 'bg-white/55' : 'bg-white/[0.06] group-hover:bg-white/[0.10]')}
-        >
+        {active && <span className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-teal-500" />}
+        <span className={'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl transition ' + (active ? 'bg-white/55' : 'bg-white/[0.06] group-hover:bg-white/[0.10]')}>
           {ICONS[emoji] || <span className="text-sm">{emoji}</span>}
-        </motion.span>
-        {expanded && <span className="relative z-10 truncate text-sm font-bold">{label}</span>}
+        </span>
+        {expanded && <span className="truncate text-sm font-bold">{label}</span>}
       </Link>
     );
   };
@@ -163,36 +163,27 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
           {expanded && (
             <>
               <span className="flex-1 truncate text-left text-sm font-bold">{config.label}</span>
-              <motion.svg
+              <svg
                 width="12"
                 height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.5"
-                animate={{ rotate: isOpen ? 180 : 0 }}
-                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                className={`flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
               >
                 <polyline points="6 9 12 15 18 9" />
-              </motion.svg>
+              </svg>
             </>
           )}
         </button>
 
-        {/* Children — animated expand/collapse */}
-        <AnimatePresence initial={false}>
-          {expanded && isOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-              className="ml-3 mt-1 flex flex-col gap-0.5 border-l border-white/15 pl-3 overflow-hidden"
-            >
-              {config.children.map((child) => renderNavLink(child))}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Children */}
+        {expanded && isOpen && (
+          <div className="ml-3 mt-1 flex flex-col gap-0.5 border-l border-white/15 pl-3">
+            {config.children.map((child) => renderNavLink(child))}
+          </div>
+        )}
       </div>
     );
   };
@@ -221,7 +212,48 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
         {Object.entries(SUB_MENUS).map(([key, config]) => renderSubMenu(key, config))}
 
         {/* Regular nav items */}
-        {navItems.map((item) => renderNavLink(item))}
+                {navItems.map((item) => renderNavLink(item))}
+
+                {/* AI 整合仓库（可折叠分组） */}
+                {integratedNavItems.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => setOpenIntegrations(!openIntegrations)}
+                      className={
+                        'group relative flex w-full items-center overflow-hidden rounded-2xl transition-all duration-200 ' +
+                        (expanded ? 'gap-3 px-3 py-2' : 'justify-center px-0 py-2') + ' ' +
+                        (isSubMenuActive(integratedNavItems)
+                          ? 'bg-amber-100 text-[#173f3c] shadow-[0_14px_30px_rgba(0,0,0,0.16)]'
+                          : 'text-teal-50/72 hover:bg-white/[0.08] hover:text-white')
+                      }
+                    >
+                      {isSubMenuActive(integratedNavItems) && <span className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-teal-500" />}
+                      <span className={'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl transition ' + (isSubMenuActive(integratedNavItems) ? 'bg-white/55' : 'bg-white/[0.06] group-hover:bg-white/[0.10]')}>
+                        <span className="text-xs">🧩</span>
+                      </span>
+                      {expanded && (
+                        <>
+                          <span className="flex-1 truncate text-left text-xs font-bold uppercase tracking-widest text-teal-100/60">
+                            整合仓库
+                          </span>
+                          <svg
+                            width="11" height="11" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" strokeWidth="2.5"
+                            className={`flex-shrink-0 transition-transform ${openIntegrations ? 'rotate-180' : ''}`}
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </>
+                      )}
+                    </button>
+
+                    {expanded && openIntegrations && (
+                      <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-white/15 pl-3">
+                        {integratedNavItems.map((item) => renderNavLink(item, 'py-2'))}
+                      </div>
+                    )}
+                  </div>
+                )}
       </nav>
 
       {/* Collapse button */}
@@ -232,20 +264,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
           className="flex h-11 w-full items-center justify-center rounded-2xl text-teal-50/70 transition hover:bg-white/[0.08] hover:text-white"
         >
           <span className={'flex items-center gap-2 text-xs font-bold ' + (expanded ? 'px-3' : '')}>
-            <motion.svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              animate={{ rotate: expanded ? 0 : 180 }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={expanded ? '' : 'rotate-180'}>
               <polyline points="15 18 9 12 15 6" />
-            </motion.svg>
+            </svg>
             {expanded && <span>收起导航</span>}
           </span>
         </button>

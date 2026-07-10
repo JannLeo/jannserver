@@ -113,17 +113,23 @@ export async function POST(req: NextRequest) {
 
   initDb();
 
-  // 1. Check if already has AI summary
+  // 1. Check if already has real AI summary (heading exists AND has content between it and next h1)
   let dailyRow = db.select().from(dailyPages).where(eq(dailyPages.date, date)).get();
   let dailyContent = '';
 
   if (dailyRow) {
     dailyContent = readMarkdown(dailyRow.filePath || '');
     if (!dailyContent) dailyContent = '';
-    if (/^##\s*AI\s*总结/m.test(dailyContent) && !req.headers.get('x-regenerate')) {
-      return NextResponse.json({ ok: true, skipped: true, message: '今日已生成日总结', content: dailyContent, date });
-    }
-    if (/^##\s*AI\s*总结/m.test(dailyContent)) {
+    // Check if ## AI 总结 exists AND has actual text content (not just the heading)
+    const hasAiSummaryHeading = /^##\s*AI\s*总结/m.test(dailyContent);
+    if (hasAiSummaryHeading) {
+      // Check if there's actual text between ## AI 总结 and the next # heading
+      const sectionMatch = dailyContent.match(/^##\s*AI\s*总结\s*\n+([^#\n][\s\S]*?)(?=\n#[ \t]|\n##\s|\n---|$)/m);
+      const hasRealSummary = sectionMatch && sectionMatch[1] && sectionMatch[1].replace(/\s+/g, '').length > 0;
+      if (hasRealSummary && !req.headers.get('x-regenerate')) {
+        return NextResponse.json({ ok: true, skipped: true, message: '今日已生成日总结', content: dailyContent, date });
+      }
+      // AI总结 heading exists but empty (or x-regenerate) → strip it and regenerate
       dailyContent = dailyContent.replace(AI_SUMMARY_RE, '').trim();
     }
   } else {

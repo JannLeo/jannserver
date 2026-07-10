@@ -38,6 +38,7 @@ export default function TrendingPage() {
   const [since, setSince] = useState<Since>('weekly');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [integrating, setIntegrating] = useState<Record<string, string>>({});
 
   const fetchTrending = useCallback(async (s: Since) => {
     setLoading(true);
@@ -58,6 +59,39 @@ export default function TrendingPage() {
   useEffect(() => {
     fetchTrending(since);
   }, [since, fetchTrending]);
+
+  const handleIntegrate = async (repo: TrendingRepo, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const key = repo.name;
+    setIntegrating(prev => ({ ...prev, [key]: 'integrating' }));
+    try {
+      const res = await fetch('/api/ai/integrate-repo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl: `https://github.com${repo.href}`,
+          repoName: repo.name,
+          integrationSteps: '评估后由 Claude Code 自动分析整合',
+          complexity: 'medium',
+          effortHours: 3,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        setIntegrating(prev => ({ ...prev, [key]: 'error' }));
+      } else {
+        setIntegrating(prev => ({ ...prev, [key]: 'done' }));
+        setTimeout(() => setIntegrating(prev => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        }), 5000);
+      }
+    } catch {
+      setIntegrating(prev => ({ ...prev, [key]: 'error' }));
+    }
+  };
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
@@ -126,13 +160,11 @@ export default function TrendingPage() {
             {repos.map((repo, idx) => {
               const [owner, ...rest] = repo.name.replace(/^\//, '').split('/');
               const repoName = rest.join('/');
+              const status = integrating[repo.name];
               return (
-                <a
+                <div
                   key={repo.name}
-                  href={`https://github.com${repo.href}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group block rounded-2xl border border-stone-900/10 bg-white/60 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-500/30 hover:shadow-md sm:p-5"
+                  className="rounded-2xl border border-stone-900/10 bg-white/60 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-500/30 hover:shadow-md sm:p-5"
                 >
                   <div className="flex items-start justify-between gap-4">
                     {/* Left: repo info */}
@@ -141,11 +173,23 @@ export default function TrendingPage() {
                         <svg className="h-4 w-4 flex-shrink-0 text-stone-400" viewBox="0 0 16 16" fill="currentColor">
                           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
                         </svg>
-                        <span className="text-sm font-bold text-stone-900 group-hover:text-teal-700 transition-colors">
+                        <a
+                          href={`https://github.com${repo.href}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-bold text-stone-900 hover:text-teal-700 transition-colors"
+                        >
                           {repoName}
-                        </span>
+                        </a>
                         <span className="text-xs text-stone-400">/</span>
-                        <span className="text-xs font-semibold text-stone-500">{owner}</span>
+                        <a
+                          href={`https://github.com/${owner}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-semibold text-stone-500 hover:text-teal-700"
+                        >
+                          {owner}
+                        </a>
                       </div>
 
                       <p className="mt-2 text-sm leading-relaxed text-stone-600 line-clamp-2">
@@ -171,14 +215,40 @@ export default function TrendingPage() {
                       </div>
                     </div>
 
-                    {/* Right: today's stars badge */}
-                    {repo.todayStars && (
-                      <span className="flex-shrink-0 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
-                        {repo.todayStars}
-                      </span>
-                    )}
+                    {/* Right: stars badge + integrate button */}
+                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                      {repo.todayStars && (
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
+                          {repo.todayStars}
+                        </span>
+                      )}
+                      {status === 'integrating' && (
+                        <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-teal-100 text-teal-700 text-xs font-bold">
+                          <span className="inline-block w-2.5 h-2.5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                          整合中
+                        </span>
+                      )}
+                      {status === 'done' && (
+                        <span className="px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                          ✓ 已创建任务
+                        </span>
+                      )}
+                      {status === 'error' && (
+                        <span className="px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">
+                          ✗ 失败
+                        </span>
+                      )}
+                      {!status && (
+                        <button
+                          onClick={(e) => handleIntegrate(repo, e)}
+                          className="px-3 py-1.5 rounded-full bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold transition-colors whitespace-nowrap"
+                        >
+                          🤖 让 AI 整合
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </a>
+                </div>
               );
             })}
           </div>

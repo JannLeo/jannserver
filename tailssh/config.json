@@ -3,13 +3,13 @@
   "listen_port": 9222,
   "hosts": [
     {
-      "id": "100.112.35.71",
+      "id": "127.0.0.1",
       "name": "sz服务器",
-      "tailscale_ip": "100.112.35.71",
+      "tailscale_ip": "127.0.0.1",
       "user": "sz",
       "port": 22,
       "key_file": "~/.ssh/id_ed25519",
-      "auto_cmd": "tmux",
+      "auto_cmd": "herdr",
       "reconnect": true,
       "reconnect_interval": 10,
       "enabled": true
