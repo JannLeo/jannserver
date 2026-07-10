@@ -66,7 +66,7 @@ const server = http.createServer((req, res) => {
     const timer = setTimeout(() => {
       console.error('[proxy] upstream timeout');
       proxyReq.destroy();
-    }, 25000);
+    }, 120000); // 120s timeout for slow AI routes
     proxyReq.on('error', (e) => { clearTimeout(timer); console.error('[proxy] request error:', e.message); res.statusCode = 502; res.end(); });
     proxyReq.end(reqBody);
   });
