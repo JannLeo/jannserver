@@ -28,6 +28,7 @@ export async function middleware(req: NextRequest) {
     // PWA assets
     '/manifest.json', '/sw.js',
     '/icons/',
+    '/shadcn_ui_ui',
   ];
   if (publicPaths.some(p => pathname.startsWith(p))) {
     return NextResponse.next();

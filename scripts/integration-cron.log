@@ -1137,3 +1137,114 @@ Cloning into '/home/sz/work
 Cloning into '/home/sz/work
 [09:25:01] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
 Cloning into '/home/sz/work
+[09:30:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[09:30:01] 开始整合: sudeshsapre/clickhouse-admin
+[09:30:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:30:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:35:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[09:35:01] 开始整合: sudeshsapre/clickhouse-admin
+[09:35:01]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:35:01] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:40:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[09:40:01] 开始整合: sudeshsapre/clickhouse-admin
+[09:40:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:40:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:45:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[09:45:01] 开始整合: sudeshsapre/clickhouse-admin
+[09:45:01]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:45:01] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+Segmentation fault (core dumped)
+[09:55:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[09:55:01] 开始整合: sudeshsapre/clickhouse-admin
+[09:55:01]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[09:55:01] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:00:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:00:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:00:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:00:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:05:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:05:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:05:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:05:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:10:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:10:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:11:01]   clone 失败: spawnSync /bin/sh ETIMEDOUT
+[10:11:01] 整合出错: spawnSync /bin/sh ETIMEDOUT
+[10:15:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:15:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:15:21]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:15:21] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:20:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:20:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:21:01]   clone 失败: spawnSync /bin/sh ETIMEDOUT
+[10:21:01] 整合出错: spawnSync /bin/sh ETIMEDOUT
+[10:25:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:25:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:25:21]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:25:21] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:30:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:30:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:30:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:30:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:35:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:35:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:35:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:35:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:40:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:40:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:40:01]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:40:01] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:45:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:45:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:46:01]   clone 失败: spawnSync /bin/sh ETIMEDOUT
+[10:46:01] 整合出错: spawnSync /bin/sh ETIMEDOUT
+[10:50:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:50:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:51:01]   clone 失败: spawnSync /bin/sh ETIMEDOUT
+[10:51:01] 整合出错: spawnSync /bin/sh ETIMEDOUT
+[10:55:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[10:55:01] 开始整合: sudeshsapre/clickhouse-admin
+[10:55:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[10:55:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[11:00:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[11:00:01] 开始整合: sudeshsapre/clickhouse-admin
+[11:00:02]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[11:00:02] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[11:05:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[11:05:01] 开始整合: sudeshsapre/clickhouse-admin
+[11:05:08]   clone 失败: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[11:05:08] 整合出错: Command failed: git -c http.proxy= -c https.proxy= clone --depth 1 "https://github.com/sudeshsapre/clickhouse-admin" "/home/sz/workspace/repos/sudeshsapre_clickhouse_admin"
+Cloning into '/home/sz/work
+[11:10:01] 处理任务: 🤖 整合: sudeshsapre/clickhouse-admin
+[11:10:01] 开始整合: sudeshsapre/clickhouse-admin
+[11:11:01]   clone 失败: spawnSync /bin/sh ETIMEDOUT
+[11:11:01] 整合出错: spawnSync /bin/sh ETIMEDOUT
