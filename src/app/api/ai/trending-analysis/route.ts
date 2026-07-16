@@ -24,7 +24,7 @@ async function fetchTrending(since: string): Promise<any[]> {
     );
     req.on('error', () => resolve([]));
     req.end();
-    setTimeout(() => { req.destroy(); resolve([]); }, 12000);
+    setTimeout(() => { req.destroy(); resolve([]); }, 30000);
   });
 }
 
@@ -36,7 +36,7 @@ async function callAiWithTimeout(apiKey: string, model: string, systemPrompt: st
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 1200,
+      max_tokens: 4000,
       temperature: 0.2,
     });
     const req = http.request(
@@ -53,7 +53,12 @@ async function callAiWithTimeout(apiKey: string, model: string, systemPrompt: st
         let data = '';
         res.on('data', c => data += c);
         res.on('end', () => {
-          try { resolve(JSON.parse(data).choices?.[0]?.message?.content || ''); }
+          try {
+            const parsed = JSON.parse(data);
+            const msg = parsed.choices?.[0]?.message || {};
+            const content = msg.content || msg.reasoning_content || '';
+            resolve(content);
+          }
           catch { resolve(''); }
         });
       }
@@ -61,7 +66,7 @@ async function callAiWithTimeout(apiKey: string, model: string, systemPrompt: st
     req.on('error', () => resolve(''));
     req.write(body);
     req.end();
-    setTimeout(() => { req.destroy(); resolve(''); }, 45000);
+    setTimeout(() => { req.destroy(); resolve(''); }, 60000);
   });
 }
 
@@ -162,10 +167,12 @@ ${repoList}
   const rawResponse = await callAiWithTimeout(apiKey, model, systemPrompt, userPrompt);
   let analysis = '';
   let recommendations: any[] = [];
+  let aiAnalysisSuccess = false;
 
   if (rawResponse) {
     const parsed = safeParseJson(rawResponse);
     if (parsed && parsed.recommendations?.length > 0) {
+      aiAnalysisSuccess = true;
       analysis = parsed.analysis || '';
       recommendations = parsed.recommendations.map((r: any) => ({
         name: r.name || '',
@@ -205,6 +212,7 @@ ${repoList}
     totalRepos: repos.length,
     analysis,
     recommendations,
+    aiAnalyzed: aiAnalysisSuccess,
     fetchedAt: new Date().toISOString(),
   });
 }

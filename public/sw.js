@@ -5,7 +5,7 @@
  *   - API routes (dynamic): Network-first with cache fallback
  *   - Navigation: Network-first (ensures fresh pages)
  */
-const CACHE_NAME = 'workspace-v1';
+const CACHE_NAME = 'workspace-v4';
 const STATIC_ASSETS = [
   '/',
   '/dashboard',
@@ -66,12 +66,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: cache-first
+  // Static assets: cache-first (but always revalidate /_next/static chunks to avoid stale JS)
   if (
-    url.pathname.match(/\.(js|css|woff2?|png|jpg|jpeg|gif|svg|ico|webp)$/) ||
-    url.pathname.startsWith('/_next/static/')
+    url.pathname.match(/\.(js|css|woff2?|png|jpg|jpeg|gif|svg|ico|webp)$/)
   ) {
-    event.respondWith(cacheFirst(request));
+    event.respondWith(
+      url.pathname.startsWith('/_next/static/')
+        ? networkFirst(request)   // always get fresh JS
+        : cacheFirst(request)
+    );
     return;
   }
 

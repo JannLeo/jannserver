@@ -3,6 +3,7 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3'],
   },
+  outputFileTracing: false,
   typescript: {
     // 跳过 TS 编译时检查，加快构建速度（类型错误不影响运行时）
     ignoreBuildErrors: true,

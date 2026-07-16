@@ -44,7 +44,7 @@ export default function TasksPage() {
   };
 
   const filtered = filter === 'done' ? tasks.filter(t => t.status === 'done')
-    : filter === 'todo' ? tasks.filter(t => t.status === 'todo')
+    : filter === 'todo' ? tasks.filter(t => t.status !== 'done')
     : tasks;
 
   return (

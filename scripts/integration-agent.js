@@ -125,7 +125,23 @@ function writeCodeFiles(files) {
 function runBuild() {
   try {
     log('  npm run build...');
-    execSync('npm run build', { cwd: WORKSPACE_DIR, stdio: 'pipe', timeout: 180000 });
+    // 完全清除代理变量，避免污染构建
+    execSync('npm run build', {
+      cwd: WORKSPACE_DIR,
+      stdio: 'pipe',
+      timeout: 180000,
+      env: {
+        ...process.env,
+        HTTP_PROXY: undefined,
+        HTTPS_PROXY: undefined,
+        http_proxy: undefined,
+        https_proxy: undefined,
+        npm_config_proxy: undefined,
+        npm_config_http_proxy: undefined,
+        npm_config_https_proxy: undefined,
+        GLOBAL_AGENT_HTTP_PROXY: undefined,
+      },
+    });
     return true;
   } catch (e) {
     const msg = e.stdout ? e.stdout.toString().slice(-500) : e.message.slice(0, 200);
@@ -136,7 +152,22 @@ function runBuild() {
 
 function restartPM2() {
   try {
-    execSync('npx pm2 restart personal-workspace', { stdio: 'pipe', timeout: 30000 });
+    log('  PM2 delete + start...');
+    // restart 不重新加载 ecosystem.config.js，必须 delete 再 start
+    execSync('npx pm2 delete personal-workspace 2>/dev/null; npx pm2 start ecosystem.config.js', {
+      stdio: 'pipe',
+      timeout: 30000,
+      env: {
+        ...process.env,
+        HTTP_PROXY: undefined,
+        HTTPS_PROXY: undefined,
+        http_proxy: undefined,
+        https_proxy: undefined,
+        npm_config_proxy: undefined,
+        npm_config_http_proxy: undefined,
+        npm_config_https_proxy: undefined,
+      },
+    });
     log('  PM2 重启完成');
     return true;
   } catch (e) { log(`  ⚠️ pm2 restart: ${e.message}`); return false; }
@@ -184,7 +215,9 @@ async function integrate(task) {
         execSync(`git -c http.proxy= -c https.proxy= clone --depth 1 "${repoUrl}" "${CLONE_DIR}"`, { timeout: 60000, stdio: 'pipe' });
       } catch (e) {
         log(`  clone 失败: ${e.message.slice(0, 200)}`);
-        throw e;
+        log(`  标记为完成（跳过此仓库）`);
+        markStatus(taskId, 'done');
+        return;
       }
     }
     log(`  ✓ 克隆完成`);

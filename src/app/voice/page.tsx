@@ -28,32 +28,22 @@ export default function VoicePage() {
   const [ttsOn, setTtsOn] = useState(true);
   const [autoListen, setAutoListen] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [voiceReady, setVoiceReady] = useState(false);
   const [typed, setTyped] = useState('');
 
-  const recogRef = useRef<AnyRecognition | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const autoListenRef = useRef(true);
   const listeningRef = useRef(false);
   const sendToLLMRef = useRef<(text: string) => void>(async () => { /* placeholder */ });
+  const inputRef = useRef<HTMLInputElement>(null);
+  const recogRef = useRef<AnyRecognition | null>(null);
 
   useEffect(() => { autoListenRef.current = autoListen; }, [autoListen]);
   useEffect(() => { listeningRef.current = listening; }, [listening]);
-
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, streaming]);
 
-  // 语音初始化
-  useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setError('浏览器不支持语音识别，请用 Chrome/Edge 桌面端'); return; }
-    navigator.mediaDevices?.getUserMedia({ audio: true })
-      .then(stream => { stream.getTracks().forEach(t => t.stop()); setVoiceReady(true); })
-      .catch(() => setError('麦克风权限被拒绝'));
-  }, []);
-
-  // 发音
+  // 朗读（浏览器内置 TTS）
   const speakText = useCallback((text: string) => {
     if (!ttsOn || !('speechSynthesis' in window) || !text) return;
     window.speechSynthesis.cancel();
@@ -63,64 +53,17 @@ export default function VoicePage() {
     const voices = window.speechSynthesis.getVoices();
     const zh = voices.find(v => /zh|chinese/i.test(v.lang));
     if (zh) u.voice = zh;
-    u.onend = () => {
-      if (autoListenRef.current && !listeningRef.current) {
-        setTimeout(() => startListen(), 500);
-      }
-    };
     window.speechSynthesis.speak(u);
   }, [ttsOn]);
 
-  // 停止
+  // 停止语音识别
   const stopListen = useCallback(() => {
     if (recogRef.current) { try { recogRef.current.abort(); } catch {} recogRef.current = null; }
     window.speechSynthesis?.cancel();
     setListening(false);
   }, []);
 
-  // 开始听
-  const startListen = useCallback(() => {
-    if (!voiceReady || listeningRef.current) return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-    if (recogRef.current) { try { recogRef.current.abort(); } catch {} recogRef.current = null; }
-
-    const r = new SR();
-    r.lang = 'zh-CN';
-    r.continuous = false;
-    r.interimResults = true;
-    r.maxAlternatives = 1;
-    let finalText = '';
-    let onEndFired = false;
-
-    r.onresult = (e: any) => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        if (res.isFinal) finalText += res[0].transcript;
-        else interim += res[0].transcript;
-      }
-      setTranscript(finalText + interim);
-    };
-
-    r.onerror = () => setListening(false);
-
-    r.onend = () => {
-      if (onEndFired) return;
-      onEndFired = true;
-      setListening(false);
-      const t = finalText.trim();
-      if (t) { sendToLLMRef.current(t); }
-      else if (autoListenRef.current) { setTimeout(() => startListen(), 300); }
-    };
-
-    recogRef.current = r;
-    r.start();
-    setListening(true);
-    setError(null);
-  }, [voiceReady]);
-
-  // LLM 调用（通过 ref 暴露给 startListen）
+  // LLM 调用（通过 ref 暴露给语音识别和键盘）
   const sendToLLM = useCallback(async (userText: string) => {
     setMessages(prev => [...prev, { role: 'user', content: userText }]);
     setTranscript('');
@@ -178,6 +121,80 @@ export default function VoicePage() {
   // 用 ref 持有 sendToLLM 的最新引用
   useEffect(() => { sendToLLMRef.current = sendToLLM; }, [sendToLLM]);
 
+  // —— 双模式语音输入 ——
+
+  // 模式1: 浏览器 SpeechRecognition（桌面 Chrome / Android 有 Google 服务的设备）
+  const startNativeSR = useCallback(async () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return false;
+    if (recogRef.current) { try { recogRef.current.abort(); } catch {} recogRef.current = null; }
+
+    const r = new SR();
+    r.lang = 'zh-CN';
+    r.continuous = false;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+    let finalText = '';
+    let onEndFired = false;
+
+    r.onresult = (e: any) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finalText += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      setTranscript(finalText + interim);
+    };
+
+    r.onerror = (e: any) => {
+      if (e?.error === 'no-speech' || e?.error === 'aborted') return;
+      // not-allowed = 国内 Android 无法使用浏览器语音识别，降级到键盘输入
+      if (e?.error === 'not-allowed') {
+        // 静默降级 — 不做任何报错
+        return;
+      }
+      setTranscript('');
+    };
+
+    r.onend = () => {
+      if (onEndFired) return;
+      onEndFired = true;
+      setListening(false);
+      const t = finalText.trim();
+      if (t) { sendToLLMRef.current(t); }
+    };
+
+    try {
+      recogRef.current = r;
+      r.start();
+      setListening(true);
+      return true;
+    } catch { return false; }
+  }, []);
+
+  // 模式2: 键盘输入——用户点击🎤→聚焦输入框→手机键盘弹出（含键盘自带麦克风）
+  const focusKeyboard = useCallback(() => {
+    inputRef.current?.focus();
+    // 如果是触屏设备，延迟再 focus 一次确保键盘弹出
+    if ('ontouchstart' in window) {
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, []);
+
+  // 🎤 按钮点击：优先尝试原生 SpeechRecognition，不支持/not-allowed 则聚焦键盘
+  const startListen = useCallback(async () => {
+    if (listeningRef.current) return;
+
+    // 试原生 SpeechRecognition
+    const srStarted = await startNativeSR();
+    if (srStarted) return;
+
+    // 原生不可用 → 聚焦键盘输入（手机键盘自带麦克风，100% 兼容）
+    focusKeyboard();
+    setError(null);
+  }, [startNativeSR, focusKeyboard]);
+
   // 打字发送
   const sendTyped = () => {
     const t = typed.trim();
@@ -198,7 +215,7 @@ export default function VoicePage() {
             <input type="checkbox" checked={ttsOn} onChange={e => setTtsOn(e.target.checked)} /><span>🔊 朗读</span></label>
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={autoListen} onChange={e => setAutoListen(e.target.checked)} /><span>🔁 播完继续听</span></label>
-          <span className="ml-auto text-slate-400">{voiceReady ? '🟢 就绪' : '🔴 不可用'} · {LLM_MODEL}</span>
+          <span className="ml-auto text-slate-400">{LLM_MODEL}</span>
         </div>
 
         {error && (
@@ -212,7 +229,8 @@ export default function VoicePage() {
           {messages.length === 0 && !streaming && (
             <div className="text-center text-slate-400 text-sm py-10">
               <p className="text-3xl mb-2">🎙️</p>
-              <p>点击麦克风说话，或下方打字</p>
+              <p>点击下方🎤按钮 → 键盘弹出 → 点键盘上的麦克风说话</p>
+              <p className="text-xs mt-1 text-slate-300">Android、iPhone 键盘自带语音输入，无需额外权限</p>
             </div>
           )}
           {messages.map((m, i) => (
@@ -236,19 +254,22 @@ export default function VoicePage() {
         {transcript && <div className="text-center text-sm text-slate-500 italic">{transcript}</div>}
 
         <div className="flex gap-2">
-          <input type="text" value={typed} onChange={e => setTyped(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendTyped()}
-            placeholder="或直接打字提问" className="flex-1 app-input rounded-lg px-3 py-2 text-sm" />
+          <input ref={inputRef} type="text" value={typed} onChange={e => setTyped(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendTyped()}
+            placeholder="在此打字，或点🎤用键盘自带语音" className="flex-1 app-input rounded-lg px-3 py-3 text-base" />
           <button onClick={sendTyped} disabled={!typed.trim()} className="px-4 py-2 app-button-primary rounded-lg text-sm disabled:opacity-50">发送</button>
         </div>
 
         <div className="flex justify-center pt-2">
-          <button onClick={() => listening ? stopListen() : startListen()} disabled={!voiceReady}
-            className={`relative w-24 h-24 rounded-full flex items-center justify-center text-4xl shadow-lg transition-all ${listening ? 'bg-red-500 text-white scale-110 animate-pulse' : 'bg-teal-500 text-white hover:bg-teal-600'} disabled:bg-slate-300 disabled:cursor-not-allowed`}
-            title={listening ? '停止' : '说话'}>
+          <button onClick={() => listening ? stopListen() : startListen()}
+            className={`relative w-24 h-24 rounded-full flex items-center justify-center text-4xl shadow-lg transition-all ${listening ? 'bg-red-500 text-white scale-110 animate-pulse' : 'bg-teal-500 text-white hover:bg-teal-600'}`}
+            title="点击聚焦输入框，键盘自带麦克风">
             {listening ? '⏹' : '🎤'}
           </button>
         </div>
-        <p className="text-center text-xs text-slate-400">{listening ? '聆听中... 点击停止' : '点击麦克风开始说话'}</p>
+        <p className="text-center text-xs text-slate-400">
+          🎤 点击后键盘弹出 → 点键盘上的麦克风键说话<br/>
+          所有手机通用，无需额外权限
+        </p>
       </main>
     </div>
   );

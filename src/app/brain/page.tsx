@@ -201,6 +201,14 @@ export default function BrainPage() {
       const data = await res.json();
       if (!res.ok || !data.ok) {
         setSyncError(data.error || `同步失败: HTTP ${res.status}`);
+      } else if (data.status === 'started') {
+        // 后台同步模式下，DB 已有完整数据，直接读 status 显示
+        setSyncMsg('同步已启动（后台自动拉取最新数据）');
+        setSyncing(false);
+        // 立即刷新页面显示
+        await fetchStatus();
+        if (tab === 'unsubmitted') fetchAlphas('UNSUBMITTED');
+        else if (tab === 'submitted') fetchAlphas('ACTIVE');
       } else {
         setSyncMsg(
           `同步完成：未提交 ${data.unsubmitted} 个，已提交 ${data.submitted} 个${
@@ -214,7 +222,7 @@ export default function BrainPage() {
     } catch (err: any) {
       setSyncError(err.message);
     } finally {
-      setSyncing(false);
+      // 后台同步模式已完成显示，不重复 setSyncing
       setTimeout(() => {
         setSyncMsg(null);
         setSyncError(null);

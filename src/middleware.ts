@@ -19,11 +19,15 @@ export async function middleware(req: NextRequest) {
     '/api/tasks', '/api/projects', '/api/repos',
     '/api/tutor', '/api/self-study', '/api/ai/ask', '/api/ai/flashcard',
  '/api/ai/trending-analysis', '/api/ai/integrate-repo',
-    '/api/llm', '/api/herdr/snapshot', '/api/sessions',
+      '/api/ai/quiz', '/api/ai/translate',
+      '/api/ai/word-definition',
+      '/api/dashboard/trending-cached',
+    '/api/tts', '/api/llm', '/api/herdr/snapshot', '/api/sessions',
     '/api/tasks/delegations',
     '/api/ai/daily-summary', '/api/daily',
     '/api/tailssh',
     '/api/video-analysis/status', '/api/video-analysis/jobs',
+    '/voice', '/speech-to-speech',
     '/_next/', '/favicon.ico',
     // PWA assets
     '/manifest.json', '/sw.js',
@@ -31,7 +35,9 @@ export async function middleware(req: NextRequest) {
     '/shadcn_ui_ui',
   ];
   if (publicPaths.some(p => pathname.startsWith(p))) {
-    return NextResponse.next();
+    const res = NextResponse.next();
+    res.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res;
   }
 
   // Root → redirect to /login or /dashboard
@@ -43,6 +49,8 @@ export async function middleware(req: NextRequest) {
   const password = process.env.SESSION_SECRET || 'complex_password_at_least_32_characters_long!';
   const cookieName = 'workspace_session';
   const res = NextResponse.next();
+  // Prevent browser caching of authenticated pages (forces fresh HTML with correct CSS hashes)
+  res.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   let session: any;
   try {
     session = await getIronSession(req, res, {

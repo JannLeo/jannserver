@@ -15,10 +15,11 @@ interface MarketData {
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'chat',    label: '💬 智能对话',     icon: '💬' },
-  { id: 'market',  label: '📊 市场数据',     icon: '📊' },
-  { id: 'aitrader',label: '🤖 AI 交易信号',  icon: '🤖' },
-  { id: 'agents',  label: '🧠 AI Agent 工作流', icon: '🧠' },
+  { id: 'chat',    label: '💬 智能对话',           icon: '💬' },
+  { id: 'market',  label: '📊 市场数据',           icon: '📊' },
+  { id: 'aitrader',label: '🤖 AI 交易信号',        icon: '🤖' },
+  { id: 'vibe',    label: '🌀 Vibe-Trading',       icon: '🌀' },
+  { id: 'agents',  label: '🧠 AI Agent 工作流',    icon: '🧠' },
 ] as const;
 type TabId = typeof TABS[number]['id'];
 
@@ -301,6 +302,20 @@ function AITraderTab() {
   );
 }
 
+function VibeTab() {
+  return (
+    <div className="flex flex-col h-full">
+      {/* Iframe 嵌入 Vibe-Trading Web UI（已在 :8899 启动） */}
+      <iframe
+        src="/vibe/"
+        className="flex-1 w-full border-0"
+        title="Vibe-Trading"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+      />
+    </div>
+  );
+}
+
 function AgentsTab() {
   return (
     <div className="p-4 space-y-3 overflow-y-auto h-full">
@@ -377,6 +392,7 @@ export default function StockAnalysisPage() {
         )}
         {activeTab === 'market' && <MarketTab />}
         {activeTab === 'aitrader' && <AITraderTab />}
+        {activeTab === 'vibe' && <VibeTab />}
         {activeTab === 'agents' && <AgentsTab />}
       </div>
     </div>

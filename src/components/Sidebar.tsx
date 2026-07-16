@@ -58,8 +58,9 @@ const SUB_MENUS: Record<string, { emoji: string; label: string; tooltip: string;
     children: [
       ['/self-study', '📊', '学习仪表盘', '学习仪表盘'],
       ['/self-study/courses', '📚', '课程', '全部课程'],
-      ['/self-study/tutor', '🤖', 'AI 导师', 'AI 学习问答'],
-      ['/self-study/flashcards', '🃏', '闪卡', '间隔重复记忆'],
+      ['/self-study/english', '🇬🇧', '英语自学', '背单词·刷题·错题本'],
+            ['/self-study/tutor', '🤖', 'AI 导师', 'AI 学习问答'],
+            ['/self-study/flashcards', '🃏', '闪卡', '间隔重复记忆'],
     ],
   },
 };
@@ -80,24 +81,31 @@ const navItems: [string, string, string, string][] = [
   ['/novel', '✍️', '小说', 'AI 小说创作'],
   ['/news', '📰', '新闻', '全球新闻聚合'],
   ['/trending', '🔥', '趋势', 'GitHub Trending'],
-  ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
-  ['/voice', '🎤', '语音助手', 'AI 语音对话'],
   ];
 
   // ── AI 整合仓库（由 integration-agent.js 动态写入） ──
   // 此数组会被 addToSidebar() 函数追加条目
   const integratedNavItems: [string, string, string, string][] = [
+    ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
+    ['/voice', '🎤', '语音助手', 'AI 语音对话'],
     ['/herdr', '🔗', 'herdr', '终端 AI Agent 工作流'],
     ['/ZhuLinsen_daily_stock_analysis', '📊', '股票分析', 'AI 股票智能分析'],
     ['/shadcn_ui_ui', '🎨', 'shadcn UI', 'UI 组件展示'],
     ['/asgeirtj_system_prompts_leaks', '📦', 'Prompt 安全', 'System Prompt 泄露检测'],
-  ];
+    ['/bradautomates_claude_video', '📦', 'claude-video', 'bradautomates/claude-video 整合'],
+  ['/MadsLorentzen_ai_job_search', '📦', 'ai-job-search', 'MadsLorentzen/ai-job-search 整合'],
+  ['/tt_a1i_archify', '📦', 'archify', 'tt-a1i/archify 整合'],
+  ['/wonderwhy_er_DesktopCommanderMCP', '📦', 'DesktopCommanderMCP', 'wonderwhy-er/DesktopCommanderMCP 整合'],
+  ['/HKUDS_Vibe_Trading', '📦', 'Vibe-Trading', 'HKUDS/Vibe-Trading 整合'],
+  ['/diegosouzapw_OmniRoute', '📦', 'OmniRoute', 'diegosouzapw/OmniRoute 整合'],
+  ['/oven_sh_bun', '📦', 'bun', 'oven-sh/bun 整合'],
+];
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
     const [openSubMenu, setOpenSubMenu] = useState<string | null>(null);
-    const [openIntegrations, setOpenIntegrations] = useState(true);
+    const [openIntegrations, setOpenIntegrations] = useState(false);
 
   // Close on route change (mobile)
   useEffect(() => {

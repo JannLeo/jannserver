@@ -103,18 +103,7 @@ async function translateViaMyMemory(text: string): Promise<string> {
 
 async function fetchGitHubTrending(since: string): Promise<TrendingRepo[]> {
   const url = `https://github.com/trending?since=${since}`;
-  const res = await fetch(url, {
-    headers: {
-      'Accept': 'text/html,application/xhtml+xml',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!res.ok) throw new Error(`GitHub trending fetch failed: ${res.status}`);
-
-  const html = await res.text();
+  const html = await proxyFetchText(url, 15000);
   const repos: TrendingRepo[] = [];
 
   const articleRegex = /<article\b[^>]*class="[^"]*\bBox-row\b[^"]*"[^>]*>([\s\S]*?)<\/article>/gi;
@@ -162,32 +151,18 @@ export async function GET(req: NextRequest) {
   try {
     const repos = await fetchGitHubTrending(since);
 
-    // Collect all descriptions that need translation
+    // Translate in background, do NOT await — non-blocking
     const descsToTranslate = repos
       .filter(r => isEnglish(r.description) && !translateCache.has(r.description))
       .map(r => r.description);
 
-    // Translate via LLM in batch
-    const llmResults = await translateViaLLM(descsToTranslate);
-
-    // Apply translations
-    const translatedRepos = repos.map(repo => {
-      let desc = repo.description;
-      if (isEnglish(desc)) {
-        if (llmResults.has(desc)) {
-          desc = llmResults.get(desc)!;
-        } else if (translateCache.has(desc)) {
-          desc = translateCache.get(desc)!;
-        } else {
-          // MyMemory fallback
-          translateViaMyMemory(desc).then(t => { if (t !== desc) translateCache.set(desc, t); });
-        }
-      }
-      return { ...repo, description: desc };
-    });
+    // Fire-and-forget LLM translation (updates cache when done)
+    if (descsToTranslate.length > 0) {
+      translateViaLLM(descsToTranslate).catch(() => {}); // intentionally orphaned
+    }
 
     return NextResponse.json({
-      repos: translatedRepos,
+      repos, // use original (untranslated) immediately
       since,
       fetchedAt: new Date().toISOString(),
     });

@@ -39,13 +39,16 @@ const server = http.createServer((req, res) => {
     const reqBody = Buffer.concat(reqChunks);
     const url = req.url || '';
 
-    // Route /api/tailssh/* to tailsshd (port 9222), everything else to Next.js
+    // Route /api/tailssh/* to tailsshd (port 9222)
+    // Route /vibe/* to Vibe-Trading (port 8899)
     const isTailSSH = url.startsWith('/api/tailssh/');
-    const upstreamPort = isTailSSH ? 9222 : NEXT_PORT;
+    const isVibe = url.startsWith('/vibe/');
+    const upstreamPort = isTailSSH ? 9222 : isVibe ? 8899 : NEXT_PORT;
+    const upstreamPath = isTailSSH ? url.replace('/api/tailssh', '') : isVibe ? url.replace('/vibe', '') : url;
 
     const proxyReq = http.request({
       hostname: '127.0.0.1', port: upstreamPort,
-      path: isTailSSH ? url.replace('/api/tailssh', '') : url,
+      path: upstreamPath,
       method: req.method, headers: req.headers,
     }, (proxyRes) => {
       const chunks = [];
@@ -57,6 +60,11 @@ const server = http.createServer((req, res) => {
           if (k === 'transfer-encoding' || k === 'content-length') continue;
           if (v != null) cleanHeaders[k] = v;
         }
+        // Don't cache HTML (prevents stale CSS hash after rebuild)
+        const ctype = proxyRes.headers['content-type'] || '';
+        if (ctype.includes('text/html') || url.endsWith('/') || !url.includes('.')) {
+          cleanHeaders['cache-control'] = 'no-cache, no-store, must-revalidate';
+        }
         cleanHeaders['content-length'] = body.length;
         res.writeHead(proxyRes.statusCode, cleanHeaders);
         res.end(body);
@@ -66,7 +74,7 @@ const server = http.createServer((req, res) => {
     const timer = setTimeout(() => {
       console.error('[proxy] upstream timeout');
       proxyReq.destroy();
-    }, 120000); // 120s timeout for slow AI routes
+    }, 300000); // 5min timeout for slow AI / brain sync routes
     proxyReq.on('error', (e) => { clearTimeout(timer); console.error('[proxy] request error:', e.message); res.statusCode = 502; res.end(); });
     proxyReq.end(reqBody);
   });

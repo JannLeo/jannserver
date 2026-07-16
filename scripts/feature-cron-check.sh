@@ -59,6 +59,8 @@ if [ -n "$NID" ]; then
     echo "[$(date '+%H:%M')] ❌ 小说生成 FAIL" >> $LOG
     echo "$GEN" | head -c 200 >> $LOG
   fi
+  # 清理测试小说
+  curl -sS -b $COOKIE -X DELETE "http://localhost:3000/api/novels/$NID" --max-time 5 2>/dev/null
 else
   echo "[$(date '+%H:%M')] ❌ 小说创建 FAIL" >> $LOG
 fi

@@ -222,30 +222,58 @@ function TrendingOptimizationSection() {
   const [error, setError] = useState<string | null>(null);
   const [integrating, setIntegrating] = useState<Record<string, string>>({});
   const [shuffleSeed, setShuffleSeed] = useState(0);
+  const [integratedRepos, setIntegratedRepos] = useState<{ name: string; safeName: string; href: string }[]>([]);
 
   useEffect(() => {
-    fetch(`/api/ai/trending-analysis?since=weekly&skip_ai=1&seed=${shuffleSeed}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) { setError(d.error); }
-        else { setData(d); }
-        setLoading(false);
-      })
-      .catch(() => {
-        // skip_ai 也失败 → 标记错误但继续尝试 AI 模式
-        setError('获取趋势失败，尝试 AI 分析...');
-        setLoading(false);
-        // 2. 回退：带 AI 分析的完整请求（可能较慢）
-        setAiAnalyzing(true);
-        fetch('/api/ai/trending-analysis?since=weekly')
-          .then(r => r.json())
-          .then(d => {
-            if (!d.error && d.recommendations?.length > 0) setData(d);
-          })
-          .catch(() => {})
-          .finally(() => setAiAnalyzing(false));
-      });
-  }, [shuffleSeed]);
+      // 加载已整合仓库列表
+      fetch('/api/integrated')
+        .then(r => r.ok ? r.json() : [])
+        .then(repos => { if (Array.isArray(repos)) setIntegratedRepos(repos); })
+        .catch(() => {});
+    }, []);
+
+    useEffect(() => {
+      // 优先读缓存（毫秒级响应，不等 AI）
+      fetch('/api/dashboard/trending-cached')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d && !d.error) {
+            setData(d);
+            setLoading(false);
+            setAiAnalyzing(false);
+            return;
+          }
+          throw new Error('cache_miss');
+        })
+        .catch(() => {
+          // 缓存没有或过期 → 实时生成（fallback，会慢）
+          setAiAnalyzing(true);
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 55000);
+          fetch(`/api/ai/trending-analysis?since=weekly&seed=${shuffleSeed}`, { signal: controller.signal })
+            .then(r => r.json())
+            .then(d => {
+              clearTimeout(timeout);
+              if (d.aiAnalyzed) {
+                setData(d);
+                setAiAnalyzing(false);
+                setLoading(false);
+              } else {
+                throw new Error('aiNotAnalyzed');
+              }
+            })
+            .catch((err) => {
+              clearTimeout(timeout);
+              if (err.message === 'aiNotAnalyzed') setError('AI 分析未完成，显示原始趋势');
+              else setError('获取趋势失败，显示原始数据');
+              setAiAnalyzing(false);
+              fetch(`/api/ai/trending-analysis?since=weekly&skip_ai=1&seed=${shuffleSeed}`)
+                .then(r => r.json())
+                .then(d => { if (!d.error) setData(d); setLoading(false); })
+                .catch(() => { setError('无法获取趋势数据'); setLoading(false); });
+            });
+        });
+    }, [shuffleSeed]);
 
   const handleIntegrate = async (repo: any) => {
     const key = repo.name || repo.fullName;
@@ -527,16 +555,9 @@ function TopSection({ todayDate, initialTasks, integratedRepos }: {
       </div>
 
       <div className="grid gap-3 lg:grid-cols-1">
-        {/* AI 优化：Trending 仓库分析 + 整合推荐 */}
-        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">🔥 每日趋势 · AI 整合推荐</h2>
-          <p className="text-[10px] text-stone-400 mt-0.5 mb-3">每日更新，可滚动查看更多 → 点击让 AI 整合到工作台</p>
-          <TrendingOptimizationSection />
-        </div>
-
         {/* Overview */}
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <OverviewSection tasks={tasks} />
+          <OverviewSection tasks={undoneTasks} />
         </div>
 
         {/* 语音助手快捷入口 */}
@@ -553,6 +574,13 @@ function TopSection({ todayDate, initialTasks, integratedRepos }: {
               🎙
             </Link>
           </div>
+        </div>
+
+        {/* AI 优化：Trending 仓库分析 + 整合推荐 — 移到最后 */}
+        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">🔥 每日趋势 · AI 整合推荐</h2>
+          <p className="text-[10px] text-stone-400 mt-0.5 mb-3">每日更新，可滚动查看更多 → 点击让 AI 整合到工作台</p>
+          <TrendingOptimizationSection />
         </div>
       </div>
     </section>
