@@ -5,7 +5,7 @@
  *   - API routes (dynamic): Network-first with cache fallback
  *   - Navigation: Network-first (ensures fresh pages)
  */
-const CACHE_NAME = 'workspace-v4';
+const CACHE_NAME = 'workspace-v6';
 const STATIC_ASSETS = [
   '/',
   '/dashboard',

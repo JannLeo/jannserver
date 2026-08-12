@@ -561,17 +561,18 @@ function TopSection({ todayDate, initialTasks, integratedRepos }: {
         </div>
 
         {/* 语音助手快捷入口 */}
-        <div className="rounded-2xl border border-teal-200/60 bg-gradient-to-br from-teal-50/80 to-white/55 p-4 shadow-sm hover:border-teal-400/60 transition-colors">
+        {/* 编程助手 (opencode) 快捷入口 */}
+        <div className="rounded-2xl border border-amber-200/60 bg-gradient-to-br from-amber-50/80 to-white/55 p-4 shadow-sm hover:border-amber-400/60 transition-colors">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-black tracking-[-0.02em] text-teal-800">🎤 语音助手</h2>
-              <p className="text-[10px] text-teal-600 mt-0.5">本地 Qwen3.6-35B，麦克风对话，自动朗读回答</p>
+              <h2 className="text-sm font-black tracking-[-0.02em] text-amber-800">💻 编程助手 (opencode)</h2>
+              <p className="text-[10px] text-amber-600 mt-0.5">基于 OpenCode，代码生成 & 调试，浏览器内运行</p>
             </div>
             <Link
-              href="/voice"
-              className="flex-shrink-0 w-11 h-11 rounded-full bg-teal-500 text-white flex items-center justify-center text-xl shadow-md hover:bg-teal-600 transition-colors"
+              href="/coding"
+              className="flex-shrink-0 w-11 h-11 rounded-full bg-amber-500 text-white flex items-center justify-center text-xl shadow-md hover:bg-amber-600 transition-colors"
             >
-              🎙
+              🛠
             </Link>
           </div>
         </div>
