@@ -73,6 +73,7 @@ const DASHBOARD_ITEM: [string, string, string, string] = ['/dashboard', '🏠', 
 
 const navItems: [string, string, string, string][] = [
   ['/tailssh', '🔌', 'Terminal', 'SSH 终端'],
+  ['/coding', '🛠', '编程助手', 'OpenCode 浏览器内编码'],
   ['/daily', '📅', 'Daily', '每日记录'],
   ['/knowledge-ask', '📚', '知识问答', '文档·代码·项目·Wiki·AI问答'],
   ['/usage', '💳', '用量', 'AI 使用情况'],

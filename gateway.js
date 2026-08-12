@@ -10,6 +10,7 @@ const { WebSocket, WebSocketServer } = require('ws');
 const NEXT_PORT = parseInt(process.env.NEXT_PORT || '3002', 10);
 const WS_PROXY = process.env.WS_PROXY || 'ws://127.0.0.1:3001';
 const GATEWAY_PORT = parseInt(process.env.GATEWAY_PORT || '3000', 10);
+const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT || '34567', 10);
 
 // ── WS Server ──────────────────────────────────────────────────────────────────
 const wss = new WebSocketServer({ noServer: true });
@@ -43,8 +44,24 @@ const server = http.createServer((req, res) => {
     // Route /vibe/* to Vibe-Trading (port 8899)
     const isTailSSH = url.startsWith('/api/tailssh/');
     const isVibe = url.startsWith('/vibe/');
-    const upstreamPort = isTailSSH ? 9222 : isVibe ? 8899 : NEXT_PORT;
-    const upstreamPath = isTailSSH ? url.replace('/api/tailssh', '') : isVibe ? url.replace('/vibe', '') : url;
+    const isCoding = url.startsWith('/coding-proxy/');
+    const upstreamPort = isTailSSH ? 9222 : isVibe ? 8899 : isCoding ? OPENCODE_PORT : NEXT_PORT;
+    const upstreamPath = isTailSSH ? url.replace('/api/tailssh', '') : isVibe ? url.replace('/vibe', '') : isCoding ? url.replace('/coding-proxy', '') : url;
+
+    if (isCoding) {
+      // Streaming proxy for opencode (SSE / large responses) - no buffering
+      const proxyReq = http.request({
+        hostname: '127.0.0.1', port: upstreamPort,
+        path: upstreamPath,
+        method: req.method, headers: req.headers,
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', (e) => { console.error('[proxy:stream] error:', e.message); if (!res.headersSent) { res.statusCode = 502; res.end(); } else { res.end(); } });
+      proxyReq.end(reqBody);
+      return;
+    }
 
     const proxyReq = http.request({
       hostname: '127.0.0.1', port: upstreamPort,
@@ -81,12 +98,33 @@ const server = http.createServer((req, res) => {
   req.on('error', () => { res.statusCode = 502; res.end(); });
 });
 
+// ── OpenCode WS Server ───────────────────────────────────────────────────────
+const codingWss = new WebSocketServer({ noServer: true });
+codingWss.on('connection', (clientWs, req) => {
+  const backendPath = (req.url || '').replace(/^\/coding-proxy/, '') || '/';
+  const backend = new WebSocket('ws://127.0.0.1:' + OPENCODE_PORT + backendPath);
+  clientWs.on('message', (data, isBinary) => {
+    if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
+  });
+  clientWs.on('close', () => backend.close());
+  clientWs.on('error', () => backend.close());
+  backend.on('message', (data, isBinary) => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
+  });
+  backend.onclose = () => { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(); };
+  backend.onerror = () => { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(); };
+});
+
 // ── WS Upgrade handler ──────────────────────────────────────────────────────
 server.on('upgrade', (req, socket, head) => {
   const url = req.url || '';
   if (url.startsWith('/ws/')) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
+    });
+  } else if (url.startsWith('/coding-proxy/')) {
+    codingWss.handleUpgrade(req, socket, head, (ws) => {
+      codingWss.emit('connection', ws, req);
     });
   } else {
     socket.destroy();
