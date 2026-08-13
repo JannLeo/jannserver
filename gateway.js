@@ -50,15 +50,33 @@ const server = http.createServer((req, res) => {
 
     if (isCoding) {
       // Streaming proxy for opencode (SSE / large responses) - no buffering
+      // Rewrite all absolute paths in HTML: /assets/... /favicon.png /apple-touch-icon.png etc.
       const proxyReq = http.request({
         hostname: '127.0.0.1', port: upstreamPort,
         path: upstreamPath,
         method: req.method, headers: req.headers,
       }, (proxyRes) => {
-        res.writeHead(proxyRes.statusCode, proxyRes.headers);
-        proxyRes.pipe(res);
+        let body = '';
+        proxyRes.on('data', (c) => body += c);
+        proxyRes.on('end', () => {
+          const ctype = proxyRes.headers['content-type'] || '';
+          if (ctype.includes('text/html')) {
+            // Rewrite every /xxx/ path prefix so browser requests go through gateway
+            const html = body
+              .replace(/src="\//g, 'src="/coding-proxy/')
+              .replace(/href="\//g, 'href="/coding-proxy/');
+            const buf = Buffer.from(html, 'utf8');
+            const headers = { ...proxyRes.headers };
+            delete headers['content-length'];
+            res.writeHead(proxyRes.statusCode, { ...headers, 'content-length': buf.byteLength });
+            res.end(buf);
+          } else {
+            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            res.end(body);
+          }
+        });
+        proxyRes.on('error', (e) => { console.error('[proxy:stream] error:', e.message); if (!res.headersSent) { res.statusCode = 502; res.end(); } else { res.end(); } });
       });
-      proxyReq.on('error', (e) => { console.error('[proxy:stream] error:', e.message); if (!res.headersSent) { res.statusCode = 502; res.end(); } else { res.end(); } });
       proxyReq.end(reqBody);
       return;
     }
