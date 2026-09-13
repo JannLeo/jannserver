@@ -121,6 +121,18 @@ function pipeRequestBody(req, proxyReq) {
 function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
   const requestHeaders = copyHeaders(req.headers);
 
+  // Never trust client-supplied forwarding headers. This gateway is the trust
+  // boundary for the local Next.js process, so overwrite them from the actual
+  // TCP peer before forwarding. The Next process may then opt into trusting
+  // proxy headers with TRUST_PROXY_HEADERS=true.
+  delete requestHeaders['x-forwarded-for'];
+  delete requestHeaders['x-real-ip'];
+  const remoteAddress = String(req.socket.remoteAddress || '').slice(0, 128);
+  if (remoteAddress) {
+    requestHeaders['x-forwarded-for'] = remoteAddress;
+    requestHeaders['x-real-ip'] = remoteAddress;
+  }
+
   // The coding HTML shell is rewritten below. Ask upstream for identity encoding
   // so string replacement never runs against gzip/br compressed bytes.
   if (rewriteCodingHtml) requestHeaders['accept-encoding'] = 'identity';
