@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import bcrypt from "bcryptjs";
 import { sqlite } from "./db/index";
+import { isAllowedHostname } from "./host-validation";
 
 export interface SessionData {
   userId?: number;
@@ -9,8 +10,32 @@ export interface SessionData {
   isLoggedIn?: boolean;
 }
 
+const DEV_SESSION_SECRET = "development-only-session-secret-change-me-123456";
+const MIN_SESSION_SECRET_LENGTH = 32;
+
+export function getSessionSecret(): string {
+  const configured = process.env.SESSION_SECRET?.trim();
+  if (configured && configured.length >= MIN_SESSION_SECRET_LENGTH) {
+    return configured;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      `SESSION_SECRET must be configured and at least ${MIN_SESSION_SECRET_LENGTH} characters long in production`,
+    );
+  }
+
+  return DEV_SESSION_SECRET;
+}
+
+// Keep the session secret lazy. Next.js imports route modules while building the
+// standalone server, but the production secret should only be required when a
+// request actually needs a session. This also avoids baking credentials into a
+// Docker image at build time.
 export const sessionOptions = {
-  password: process.env.SESSION_SECRET || "complex_password_at_least_32_characters_long!",
+  get password(): string {
+    return getSessionSecret();
+  },
   cookieName: "workspace_session",
   cookieOptions: {
     // Tailscale/HTTP 环境下设 ALLOW_HTTP_COOKIES=true，否则浏览器不存储 session cookie
@@ -35,30 +60,75 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export function validateOrigin(headers: Headers): boolean {
-  const allowed = (process.env.ALLOWED_HOSTS || "localhost,127.0.0.1")
-    .split(",")
-    .map(h => h.trim());
-  const origin = headers.get("origin") || "";
-  const referer = headers.get("referer") || "";
-  for (const host of allowed) {
-    if (origin.includes(host) || referer.includes(host)) return true;
+  const source = headers.get("origin") || headers.get("referer");
+  // Non-browser/CLI callers do not necessarily send Origin or Referer. They are
+  // still protected by session/API authentication at the route layer.
+  if (!source) return true;
+
+  try {
+    return isAllowedHostname(new URL(source).hostname);
+  } catch {
+    return false;
   }
-  return false;
 }
 
-// Rate limiting: 5 failures per 15 minutes per username/IP
+function positiveInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(value || "", 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+export function getRateLimitConfig() {
+  return {
+    windowMs: positiveInt(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000, 1_000, 24 * 60 * 60 * 1000),
+    maxAttempts: positiveInt(process.env.RATE_LIMIT_MAX_ATTEMPTS, 5, 1, 100),
+  };
+}
+
+// Login rate limiting is backed by SQLite so it works across process restarts.
+// The composite index matches the hot lookup (identity + recent timestamp) and
+// prepared statements avoid reparsing SQL on every login attempt.
+sqlite.exec(
+  "CREATE INDEX IF NOT EXISTS idx_login_failures_username_attempt ON login_failures(username, attempt_at)",
+);
+const pruneLoginFailures = sqlite.prepare(
+  "DELETE FROM login_failures WHERE attempt_at < datetime('now', ?)",
+);
+const countLoginFailures = sqlite.prepare(
+  "SELECT COUNT(*) as cnt FROM login_failures WHERE username = ? AND attempt_at > datetime('now', ?)",
+);
+const insertLoginFailure = sqlite.prepare(
+  "INSERT INTO login_failures (username, attempt_at) VALUES (?, datetime('now'))",
+);
+const deleteLoginFailures = sqlite.prepare(
+  "DELETE FROM login_failures WHERE username = ?",
+);
+
 export async function checkRateLimit(key: string): Promise<{ allowed: boolean; remaining: number }> {
-  const window = 15 * 60;
-  const max = 5;
-  const cutoff = Math.floor(Date.now() / 1000) - window;
-  sqlite.exec(`DELETE FROM login_failures WHERE attempt_at < datetime('now', '-${window} seconds')`);
-  const result = sqlite.prepare(
-    `SELECT COUNT(*) as cnt FROM login_failures WHERE username = ? AND attempt_at > datetime('now', '-${window} seconds')`
-  ).get(key) as { cnt: number } | undefined;
+  const { windowMs, maxAttempts } = getRateLimitConfig();
+  const windowSeconds = Math.max(1, Math.ceil(windowMs / 1000));
+  const modifier = `-${windowSeconds} seconds`;
+
+  pruneLoginFailures.run(modifier);
+
+  const result = countLoginFailures.get(key, modifier) as { cnt: number } | undefined;
   const count = result?.cnt ?? 0;
-  return { allowed: count < max, remaining: Math.max(0, max - count) };
+  return {
+    allowed: count < maxAttempts,
+    remaining: Math.max(0, maxAttempts - count),
+  };
 }
 
 export async function recordFailure(key: string): Promise<void> {
-  sqlite.prepare("INSERT INTO login_failures (username, attempt_at) VALUES (?, datetime('now'))").run(key);
+  insertLoginFailure.run(key);
+}
+
+export async function clearFailures(...keys: string[]): Promise<void> {
+  const uniqueKeys = [...new Set(keys.filter(Boolean))];
+  if (uniqueKeys.length === 0) return;
+
+  const clearMany = sqlite.transaction((values: string[]) => {
+    for (const value of values) deleteLoginFailures.run(value);
+  });
+  clearMany(uniqueKeys);
 }

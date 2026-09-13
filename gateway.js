@@ -1,152 +1,385 @@
 /**
  * Gateway: port 3000 → HTTP:3002 (Next.js), WS:3001 (ws-proxy → tailsshd)
- * Uses ws.WebSocketServer for WS (native framing support, no RSV1 issue)
- * Uses http.request for HTTP proxy (buffered body, no pipe issues)
+ * Routes selected HTTP traffic to local services and keeps streaming responses streaming.
  */
+'use strict';
+
 const http = require('http');
-const crypto = require('crypto');
+const { unsealData } = require('iron-session');
 const { WebSocket, WebSocketServer } = require('ws');
 
-const NEXT_PORT = parseInt(process.env.NEXT_PORT || '3002', 10);
+function boundedInt(raw, fallback, min, max) {
+  const value = Number.parseInt(raw || '', 10);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+const NEXT_PORT = boundedInt(process.env.NEXT_PORT, 3002, 1, 65535);
 const WS_PROXY = process.env.WS_PROXY || 'ws://127.0.0.1:3001';
-const GATEWAY_PORT = parseInt(process.env.GATEWAY_PORT || '3000', 10);
-const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT || '34567', 10);
+const GATEWAY_PORT = boundedInt(process.env.GATEWAY_PORT, 3000, 1, 65535);
+const OPENCODE_PORT = boundedInt(process.env.OPENCODE_PORT, 34567, 1, 65535);
+const PROXY_IDLE_TIMEOUT_MS = boundedInt(process.env.PROXY_IDLE_TIMEOUT_MS, 300000, 1000, 30 * 60 * 1000);
+const MAX_HTML_REWRITE_BYTES = boundedInt(
+  process.env.MAX_HTML_REWRITE_BYTES,
+  8 * 1024 * 1024,
+  64 * 1024,
+  64 * 1024 * 1024,
+);
+const MAX_WS_PAYLOAD = boundedInt(process.env.MAX_WS_PAYLOAD, 1024 * 1024, 1024, 16 * 1024 * 1024);
+const SESSION_COOKIE_NAME = 'workspace_session';
 
-// ── WS Server ──────────────────────────────────────────────────────────────────
-const wss = new WebSocketServer({ noServer: true });
-wss.on('connection', (clientWs, req) => {
-  const hostId = (req.url || '').replace(/^\/ws\//, '');
-  if (!hostId) { clientWs.close(1002); return; }
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
 
-  const backend = new WebSocket(WS_PROXY + '/ws/' + hostId);
-  clientWs.on('message', (data, isBinary) => {
-    if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
+function copyHeaders(headers, { dropContentLength = false } = {}) {
+  const result = {};
+  for (const [key, value] of Object.entries(headers)) {
+    const lower = key.toLowerCase();
+    if (HOP_BY_HOP_HEADERS.has(lower)) continue;
+    if (dropContentLength && lower === 'content-length') continue;
+    if (value != null) result[key] = value;
+  }
+  return result;
+}
+
+function parseCookies(header) {
+  const cookies = {};
+  for (const part of String(header || '').split(';')) {
+    const index = part.indexOf('=');
+    if (index <= 0) continue;
+    const name = part.slice(0, index).trim();
+    const rawValue = part.slice(index + 1).trim();
+    try {
+      cookies[name] = decodeURIComponent(rawValue);
+    } catch {
+      cookies[name] = rawValue;
+    }
+  }
+  return cookies;
+}
+
+function withoutCookie(header, cookieName) {
+  return String(header || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part && part.slice(0, part.indexOf('=')).trim() !== cookieName)
+    .join('; ');
+}
+
+async function isWorkspaceAuthenticated(req) {
+  const password = process.env.SESSION_SECRET?.trim() || '';
+  if (password.length < 32) {
+    console.error('[gateway] SESSION_SECRET is missing or shorter than 32 characters');
+    return false;
+  }
+
+  const seal = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+  if (!seal) return false;
+
+  try {
+    const session = await unsealData(seal, { password });
+    return Boolean(session && session.userId);
+  } catch (error) {
+    console.warn('[gateway] rejected invalid session cookie:', error?.message || error);
+    return false;
+  }
+}
+
+function sendUnauthorized(res) {
+  if (res.destroyed || res.writableEnded) return;
+  res.writeHead(401, {
+    'content-type': 'text/plain; charset=utf-8',
+    'cache-control': 'no-store',
   });
-  clientWs.on('close', () => backend.close());
-  clientWs.on('error', () => backend.close());
-  backend.on('message', (data, isBinary) => {
-    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
-  });
-  backend.onclose = () => { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(); };
-  backend.onerror = () => { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(); };
-});
+  res.end('Unauthorized');
+}
 
-// HTTP Server (handles both HTTP requests and WS upgrades)
-const server = http.createServer((req, res) => {
-  // Read the full incoming body first
-  const reqChunks = [];
-  req.on('data', (c) => reqChunks.push(c));
-  req.on('end', () => {
-    const reqBody = Buffer.concat(reqChunks);
-    const url = req.url || '';
+function rejectUpgrade(socket) {
+  if (!socket.destroyed) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+  }
+  socket.destroy();
+}
 
-    // Route /api/tailssh/* to tailsshd (port 9222)
-    // Route /vibe/* to Vibe-Trading (port 8899)
-    const isTailSSH = url.startsWith('/api/tailssh/');
-    const isVibe = url.startsWith('/vibe/');
-    const isCoding = url.startsWith('/coding-proxy/');
-    const upstreamPort = isTailSSH ? 9222 : isVibe ? 8899 : isCoding ? OPENCODE_PORT : NEXT_PORT;
-    const upstreamPath = isTailSSH ? url.replace('/api/tailssh', '') : isVibe ? url.replace('/vibe', '') : isCoding ? url.replace('/coding-proxy', '') : url;
+function sendProxyError(res, error, label = 'proxy') {
+  console.error(`[${label}]`, error?.message || error);
+  if (res.destroyed || res.writableEnded) return;
+  if (res.headersSent) {
+    res.destroy(error instanceof Error ? error : undefined);
+    return;
+  }
+  res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end('Bad Gateway');
+}
 
-    if (isCoding) {
-      // Streaming proxy for opencode (SSE / large responses) - no buffering
-      // Rewrite all absolute paths in HTML: /assets/... /favicon.png /apple-touch-icon.png etc.
-      const proxyReq = http.request({
-        hostname: '127.0.0.1', port: upstreamPort,
-        path: upstreamPath,
-        method: req.method, headers: req.headers,
-      }, (proxyRes) => {
-        let body = '';
-        proxyRes.on('data', (c) => body += c);
-        proxyRes.on('end', () => {
-          const ctype = proxyRes.headers['content-type'] || '';
-          if (ctype.includes('text/html')) {
-            // Rewrite every /xxx/ path prefix so browser requests go through gateway
-            const html = body
-              .replace(/src="\//g, 'src="/coding-proxy/')
-              .replace(/href="\//g, 'href="/coding-proxy/');
-            const buf = Buffer.from(html, 'utf8');
-            const headers = { ...proxyRes.headers };
-            delete headers['content-length'];
-            res.writeHead(proxyRes.statusCode, { ...headers, 'content-length': buf.byteLength });
-            res.end(buf);
-          } else {
-            res.writeHead(proxyRes.statusCode, proxyRes.headers);
-            res.end(body);
-          }
-        });
-        proxyRes.on('error', (e) => { console.error('[proxy:stream] error:', e.message); if (!res.headersSent) { res.statusCode = 502; res.end(); } else { res.end(); } });
+function pipeRequestBody(req, proxyReq) {
+  req.pipe(proxyReq);
+  req.on('aborted', () => proxyReq.destroy());
+  req.on('error', (error) => proxyReq.destroy(error));
+}
+
+function proxyHttp(req, res, { port, path, rewriteCodingHtml = false, isolateWorkspaceCredentials = false }) {
+  const requestHeaders = copyHeaders(req.headers);
+
+  // Never trust client-supplied forwarding headers. This gateway is the trust
+  // boundary for the local Next.js process, so overwrite them from the actual
+  // TCP peer before forwarding. The Next process may then opt into trusting
+  // proxy headers with TRUST_PROXY_HEADERS=true.
+  delete requestHeaders['x-forwarded-for'];
+  delete requestHeaders['x-real-ip'];
+  const remoteAddress = String(req.socket.remoteAddress || '').slice(0, 128);
+  if (remoteAddress) {
+    requestHeaders['x-forwarded-for'] = remoteAddress;
+    requestHeaders['x-real-ip'] = remoteAddress;
+  }
+
+  if (isolateWorkspaceCredentials) {
+    const serviceCookies = withoutCookie(requestHeaders.cookie, SESSION_COOKIE_NAME);
+    if (serviceCookies) requestHeaders.cookie = serviceCookies;
+    else delete requestHeaders.cookie;
+    delete requestHeaders['x-herdr-key'];
+    delete requestHeaders['x-delegation-key'];
+  }
+
+  // The coding HTML shell is rewritten below. Ask upstream for identity encoding
+  // so string replacement never runs against gzip/br compressed bytes.
+  if (rewriteCodingHtml) requestHeaders['accept-encoding'] = 'identity';
+
+  const proxyReq = http.request({
+    hostname: '127.0.0.1',
+    port,
+    path,
+    method: req.method,
+    headers: requestHeaders,
+  }, (proxyRes) => {
+    const statusCode = proxyRes.statusCode || 502;
+    const contentType = String(proxyRes.headers['content-type'] || '');
+    const contentEncoding = String(proxyRes.headers['content-encoding'] || '').toLowerCase();
+    const shouldRewriteHtml = rewriteCodingHtml
+      && contentType.includes('text/html')
+      && (!contentEncoding || contentEncoding === 'identity');
+
+    // The OpenCode HTML shell needs absolute paths rewritten. Buffer only while
+    // it remains below the configured limit; if it grows larger, immediately
+    // switch to streaming passthrough so memory usage stays bounded.
+    if (shouldRewriteHtml) {
+      const chunks = [];
+      let totalBytes = 0;
+      let passthrough = false;
+
+      const startPassthrough = () => {
+        if (passthrough) return;
+        passthrough = true;
+        console.warn(`[proxy:coding] HTML rewrite skipped (> ${MAX_HTML_REWRITE_BYTES} bytes)`);
+        const headers = copyHeaders(proxyRes.headers, { dropContentLength: true });
+        res.writeHead(statusCode, headers);
+        for (const buffered of chunks) res.write(buffered);
+        chunks.length = 0;
+      };
+
+      proxyRes.on('data', (chunk) => {
+        if (res.destroyed || res.writableEnded) return;
+        if (passthrough) {
+          res.write(chunk);
+          return;
+        }
+
+        totalBytes += chunk.length;
+        if (totalBytes > MAX_HTML_REWRITE_BYTES) {
+          startPassthrough();
+          res.write(chunk);
+          return;
+        }
+        chunks.push(chunk);
       });
-      proxyReq.end(reqBody);
+
+      proxyRes.on('end', () => {
+        if (res.destroyed || res.writableEnded) return;
+        if (passthrough) {
+          res.end();
+          return;
+        }
+
+        const raw = Buffer.concat(chunks, totalBytes);
+        const html = raw.toString('utf8')
+          .replace(/src="\//g, 'src="/coding-proxy/')
+          .replace(/href="\//g, 'href="/coding-proxy/');
+        const body = Buffer.from(html, 'utf8');
+        const headers = copyHeaders(proxyRes.headers, { dropContentLength: true });
+        headers['content-length'] = body.length;
+        headers['cache-control'] = 'no-cache, no-store, must-revalidate';
+        res.writeHead(statusCode, headers);
+        res.end(body);
+      });
+
+      proxyRes.on('aborted', () => {
+        if (!res.writableEnded) res.destroy(new Error('upstream response aborted'));
+      });
+      proxyRes.on('error', (error) => sendProxyError(res, error, 'proxy:coding-response'));
       return;
     }
 
-    const proxyReq = http.request({
-      hostname: '127.0.0.1', port: upstreamPort,
-      path: upstreamPath,
-      method: req.method, headers: req.headers,
-    }, (proxyRes) => {
-      const chunks = [];
-      proxyRes.on('data', (c) => chunks.push(c));
-      proxyRes.on('end', () => {
-        const body = Buffer.concat(chunks);
-        const cleanHeaders = {};
-        for (const [k, v] of Object.entries(proxyRes.headers)) {
-          if (k === 'transfer-encoding' || k === 'content-length') continue;
-          if (v != null) cleanHeaders[k] = v;
-        }
-        // Don't cache HTML (prevents stale CSS hash after rebuild)
-        const ctype = proxyRes.headers['content-type'] || '';
-        if (ctype.includes('text/html') || url.endsWith('/') || !url.includes('.')) {
-          cleanHeaders['cache-control'] = 'no-cache, no-store, must-revalidate';
-        }
-        cleanHeaders['content-length'] = body.length;
-        res.writeHead(proxyRes.statusCode, cleanHeaders);
-        res.end(body);
-      });
-      proxyRes.on('error', (e) => { console.error('[proxy] response error:', e.message); res.end(); });
-    });
-    const timer = setTimeout(() => {
-      console.error('[proxy] upstream timeout');
-      proxyReq.destroy();
-    }, 300000); // 5min timeout for slow AI / brain sync routes
-    proxyReq.on('error', (e) => { clearTimeout(timer); console.error('[proxy] request error:', e.message); res.statusCode = 502; res.end(); });
-    proxyReq.end(reqBody);
-  });
-  req.on('error', () => { res.statusCode = 502; res.end(); });
-});
+    const headers = copyHeaders(proxyRes.headers);
+    const url = req.url || '';
+    if (!rewriteCodingHtml && (contentType.includes('text/html') || url.endsWith('/') || !url.includes('.'))) {
+      headers['cache-control'] = 'no-cache, no-store, must-revalidate';
+    }
 
-// ── OpenCode WS Server ───────────────────────────────────────────────────────
-const codingWss = new WebSocketServer({ noServer: true });
-codingWss.on('connection', (clientWs, req) => {
-  const backendPath = (req.url || '').replace(/^\/coding-proxy/, '') || '/';
-  const backend = new WebSocket('ws://127.0.0.1:' + OPENCODE_PORT + backendPath);
+    res.writeHead(statusCode, headers);
+    proxyRes.pipe(res);
+    proxyRes.on('aborted', () => {
+      if (!res.writableEnded) res.destroy(new Error('upstream response aborted'));
+    });
+    proxyRes.on('error', (error) => sendProxyError(res, error, 'proxy:response'));
+  });
+
+  proxyReq.setTimeout(PROXY_IDLE_TIMEOUT_MS, () => {
+    proxyReq.destroy(new Error(`upstream idle timeout after ${PROXY_IDLE_TIMEOUT_MS}ms`));
+  });
+
+  proxyReq.on('error', (error) => sendProxyError(res, error, 'proxy:request'));
+  res.on('close', () => {
+    if (!res.writableEnded) proxyReq.destroy();
+  });
+
+  pipeRequestBody(req, proxyReq);
+}
+
+// ── TailSSH WS server ───────────────────────────────────────────────────────
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
+wss.on('connection', (clientWs, req) => {
+  let hostId = '';
+  try {
+    const parsed = new URL(req.url || '/', 'http://localhost');
+    hostId = parsed.pathname.replace(/^\/ws\//, '');
+  } catch {
+    clientWs.close(1002);
+    return;
+  }
+
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(hostId)) {
+    clientWs.close(1008);
+    return;
+  }
+
+  const backendBase = WS_PROXY.replace(/\/$/, '');
+  const backend = new WebSocket(`${backendBase}/ws/${encodeURIComponent(hostId)}`, {
+    maxPayload: MAX_WS_PAYLOAD,
+  });
   clientWs.on('message', (data, isBinary) => {
     if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
   });
-  clientWs.on('close', () => backend.close());
-  clientWs.on('error', () => backend.close());
+  clientWs.on('close', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
+  clientWs.on('error', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
   backend.on('message', (data, isBinary) => {
     if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
   });
-  backend.onclose = () => { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(); };
-  backend.onerror = () => { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(); };
+  backend.on('close', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+  });
+  backend.on('error', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011);
+  });
 });
 
-// ── WS Upgrade handler ──────────────────────────────────────────────────────
-server.on('upgrade', (req, socket, head) => {
+// HTTP server (handles both HTTP requests and WS upgrades)
+const server = http.createServer(async (req, res) => {
+  const url = req.url || '/';
+  const isVibe = url === '/vibe' || url.startsWith('/vibe/');
+  const isCoding = url === '/coding-proxy' || url.startsWith('/coding-proxy/');
+
+  // TailSSH HTTP is intentionally NOT intercepted here anymore. It goes through
+  // Next.js /api/tailssh where the normal workspace middleware authenticates it.
+  if ((isVibe || isCoding) && !(await isWorkspaceAuthenticated(req))) {
+    sendUnauthorized(res);
+    return;
+  }
+
+  const upstreamPort = isVibe ? 8899 : isCoding ? OPENCODE_PORT : NEXT_PORT;
+  const upstreamPath = isVibe
+    ? url.replace(/^\/vibe/, '') || '/'
+    : isCoding
+      ? url.replace(/^\/coding-proxy/, '') || '/'
+      : url;
+
+  proxyHttp(req, res, {
+    port: upstreamPort,
+    path: upstreamPath,
+    rewriteCodingHtml: isCoding,
+    isolateWorkspaceCredentials: isVibe || isCoding,
+  });
+});
+
+// ── OpenCode WS server ──────────────────────────────────────────────────────
+const codingWss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
+codingWss.on('connection', (clientWs, req) => {
+  const backendPath = (req.url || '').replace(/^\/coding-proxy/, '') || '/';
+  const backend = new WebSocket(`ws://127.0.0.1:${OPENCODE_PORT}${backendPath}`, {
+    maxPayload: MAX_WS_PAYLOAD,
+  });
+  clientWs.on('message', (data, isBinary) => {
+    if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
+  });
+  clientWs.on('close', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
+  clientWs.on('error', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
+  backend.on('message', (data, isBinary) => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
+  });
+  backend.on('close', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+  });
+  backend.on('error', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011);
+  });
+});
+
+// ── WS upgrade handler ──────────────────────────────────────────────────────
+server.on('upgrade', async (req, socket, head) => {
   const url = req.url || '';
-  if (url.startsWith('/ws/')) {
+  const isTailSshWs = url.startsWith('/ws/');
+  const isCodingWs = url === '/coding-proxy' || url.startsWith('/coding-proxy/');
+
+  if (!isTailSshWs && !isCodingWs) {
+    socket.destroy();
+    return;
+  }
+
+  if (!(await isWorkspaceAuthenticated(req))) {
+    rejectUpgrade(socket);
+    return;
+  }
+
+  if (isTailSshWs) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
     });
-  } else if (url.startsWith('/coding-proxy/')) {
-    codingWss.handleUpgrade(req, socket, head, (ws) => {
-      codingWss.emit('connection', ws, req);
-    });
-  } else {
-    socket.destroy();
+    return;
   }
+
+  codingWss.handleUpgrade(req, socket, head, (ws) => {
+    codingWss.emit('connection', ws, req);
+  });
+});
+
+server.on('clientError', (error, socket) => {
+  console.error('[gateway] client error:', error.message);
+  if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
 });
 
 server.listen(GATEWAY_PORT, '0.0.0.0', () => {

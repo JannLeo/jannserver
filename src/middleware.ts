@@ -1,100 +1,163 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIronSession } from 'iron-session';
+import { hostnameFromHostHeader, isAllowedHostname } from '@/lib/host-validation';
 
-// Separate lightweight rate-limit check for middleware (Edge-compatible, no Node.js modules)
-async function checkRateLimitEdge(key: string): Promise<{ allowed: boolean }> {
-  // Use fetch to a tiny API endpoint for rate limiting
-  // For now, skip rate limiting in middleware — API routes enforce it
-  return { allowed: true };
+const EXACT_PUBLIC_PATHS = new Set([
+  '/login',
+  '/api/health',
+  '/api/init',
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/me',
+  '/favicon.ico',
+  '/manifest.json',
+  '/sw.js',
+  '/shadcn_ui_ui',
+]);
+
+const PUBLIC_PREFIXES = [
+  '/_next/',
+  '/icons/',
+];
+
+const DEV_SESSION_SECRET = 'development-only-session-secret-change-me-123456';
+
+function isPublicPath(pathname: string): boolean {
+  if (EXACT_PUBLIC_PATHS.has(pathname)) return true;
+  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+function sessionSecret(): string | null {
+  const configured = process.env.SESSION_SECRET?.trim();
+  if (configured && configured.length >= 32) return configured;
+  if (process.env.NODE_ENV === 'production') return null;
+  return DEV_SESSION_SECRET;
+}
+
+function serviceMisconfigured(pathname: string) {
+  console.error('[middleware] SESSION_SECRET is missing or shorter than 32 characters');
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: 'Server authentication is not configured' }, { status: 503 });
+  }
+  return new NextResponse('Server authentication is not configured', { status: 503 });
+}
+
+function isPathOrChild(pathname: string, root: string): boolean {
+  return pathname === root || pathname.startsWith(`${root}/`);
+}
+
+function hasMachineKey(req: NextRequest, headerName: string, envName: string): boolean {
+  const expected = process.env[envName]?.trim() || '';
+  const provided = req.headers.get(headerName)?.trim() || '';
+  return expected.length >= 16 && provided.length === expected.length && provided === expected;
+}
+
+function machineAuthResponse(req: NextRequest, pathname: string): NextResponse | null {
+  if (
+    isPathOrChild(pathname, '/api/herdr') &&
+    hasMachineKey(req, 'x-herdr-key', 'HERDR_API_KEY')
+  ) {
+    const response = NextResponse.next();
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return response;
+  }
+
+  if (
+    isPathOrChild(pathname, '/api/tasks/delegations') &&
+    hasMachineKey(req, 'x-delegation-key', 'DELEGATION_API_KEY')
+  ) {
+    const response = NextResponse.next();
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return response;
+  }
+
+  return null;
+}
+
+function invalidHost(pathname: string): NextResponse {
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: 'Unrecognized Host header' }, { status: 421 });
+  }
+  return new NextResponse('Unrecognized Host header', { status: 421 });
 }
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Public paths (no auth needed)
-  const publicPaths = [
-    '/login', '/api/health', '/api/init',
-    '/api/auth/login', '/api/auth/logout', '/api/auth/me',
-    '/api/news', '/api/trending', '/api/usage',
-    '/api/tasks', '/api/projects', '/api/repos',
-    '/api/tutor', '/api/self-study', '/api/ai/ask', '/api/ai/flashcard',
- '/api/ai/trending-analysis', '/api/ai/integrate-repo',
-      '/api/ai/quiz', '/api/ai/translate',
-      '/api/ai/word-definition',
-      '/api/dashboard/trending-cached',
-    '/api/tts', '/api/llm', '/api/herdr/snapshot', '/api/sessions',
-    '/api/tasks/delegations',
-    // Herdr agent control (internal tool)
-    '/api/herdr/',
-    '/api/ai/daily-summary', '/api/daily',
-    '/api/tailssh',
-    '/api/video-analysis/status', '/api/video-analysis/jobs',
-    '/voice', '/speech-to-speech',
-
-    '/_next/', '/favicon.ico',
-    // PWA assets
-    '/manifest.json', '/sw.js',
-    '/icons/',
-    '/shadcn_ui_ui',
-  ];
-  if (publicPaths.some(p => pathname.startsWith(p))) {
-    const res = NextResponse.next();
-    res.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    return res;
+  // Validate the actual client-visible Host header rather than req.nextUrl's
+  // internally resolved hostname. Standalone Next may use the container hostname
+  // for nextUrl even when the incoming request correctly targets 127.0.0.1.
+  if (process.env.NODE_ENV === 'production') {
+    const requestHostname = hostnameFromHostHeader(req.headers.get('host'));
+    if (!requestHostname || !isAllowedHostname(requestHostname)) {
+      return invalidHost(pathname);
+    }
   }
 
-  // Root → redirect to /login or /dashboard
+  if (isPublicPath(pathname)) {
+    const response = NextResponse.next();
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return response;
+  }
+
+  // Machine callers can access only their narrowly scoped endpoint families
+  // with dedicated keys. Browser callers continue through normal session auth.
+  const machineResponse = machineAuthResponse(req, pathname);
+  if (machineResponse) return machineResponse;
+
   if (pathname === '/') {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  // Auth check
-  const password = process.env.SESSION_SECRET || 'complex_password_at_least_32_characters_long!';
-  const cookieName = 'workspace_session';
-  const res = NextResponse.next();
-  // Prevent browser caching of authenticated pages (forces fresh HTML with correct CSS hashes)
-  res.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-  let session: any;
+  const password = sessionSecret();
+  if (!password) return serviceMisconfigured(pathname);
+
+  const response = NextResponse.next();
+  response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+  let session: { userId?: number } | undefined;
   try {
-    session = await getIronSession(req, res, {
+    session = await getIronSession<{ userId?: number }>(req, response, {
       password,
-      cookieName,
+      cookieName: 'workspace_session',
       cookieOptions: {
-        secure: process.env.NODE_ENV === 'production',
+        secure: process.env.NODE_ENV === 'production' && process.env.ALLOW_HTTP_COOKIES !== 'true',
         httpOnly: true,
-        sameSite: 'strict',
+        sameSite: 'lax',
         maxAge: 7 * 24 * 60 * 60,
       },
     });
-  } catch (e) {
-    return NextResponse.redirect(new URL('/login', req.url));
-  }
-
-  if (!session?.userId) {
-    // API routes → return JSON 401 instead of redirect
+  } catch (error) {
+    console.error('[middleware] failed to read session', error);
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  // CSRF: Origin check for mutations
+  if (!session?.userId) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    return NextResponse.redirect(new URL('/login', req.url));
+  }
+
+  // Browser mutations must come from an explicitly allowed hostname. CLI and
+  // machine clients without Origin remain protected by session/API-key auth.
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const origin = req.headers.get('origin');
     if (origin) {
-      const allowed = (process.env.ALLOWED_HOSTS || 'localhost,127.0.0.1').split(',');
       try {
-        const url = new URL(origin);
-        const ok = allowed.some(h => url.hostname === h || url.hostname.endsWith(`.${h}`));
-        if (!ok) return new Response('Forbidden', { status: 403 });
+        if (!isAllowedHostname(new URL(origin).hostname)) {
+          return new Response('Forbidden', { status: 403 });
+        }
       } catch {
         return new Response('Forbidden', { status: 403 });
       }
     }
-    // No origin header on curl requests: skip for now (API routes enforce auth)
   }
 
-  return res;
+  return response;
 }
 
 export const config = {

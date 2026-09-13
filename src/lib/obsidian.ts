@@ -2,9 +2,8 @@
 /**
  * Obsidian Vault 同步
  *
- * 扫描 vault 目录下所有 .md 文件，计算 content hash，
- * 对新增/修改的文件调 updateEmbeddings 写入向量；删除已不存在的文件的向量。
- * 同步状态记到 kb_sources 表（sourceType='obsidian'）。
+ * 扫描受配置根目录约束的 .md 文件，计算 content hash，
+ * 对新增/修改文件更新 embeddings；删除已不存在文件的向量。
  */
 
 import fs from 'fs';
@@ -15,10 +14,16 @@ import { kbSources, embeddings } from './db/schema';
 import { eq, and } from 'drizzle-orm';
 import { updateEmbeddings } from './embeddings';
 
-const DEFAULT_VAULT =
-  process.env.OBSIDIAN_VAULT_DIR || path.join(process.cwd(), 'data', 'obsidian-vault');
+const DEFAULT_VAULT = path.resolve(
+  process.env.OBSIDIAN_VAULT_DIR || path.join(process.cwd(), 'data', 'obsidian-vault'),
+);
 
-const EXCLUDED_DIRS = ['.obsidian', '_templates', '_attachments', '.trash', 'node_modules', '.git'];
+const EXCLUDED_DIRS = new Set([
+  '.obsidian', '_templates', '_attachments', '.trash', 'node_modules', '.git',
+]);
+const MAX_FILES = 5000;
+const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 
 export interface ObsidianSyncResult {
   ok: boolean;
@@ -28,27 +33,48 @@ export interface ObsidianSyncResult {
   total: number;
 }
 
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative !== '..'
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+function resolveVaultPath(requestedPath: string): { configuredRoot: string; vaultPath: string } {
+  const candidate = path.resolve(requestedPath || DEFAULT_VAULT);
+  if (!isPathInside(DEFAULT_VAULT, candidate)) {
+    throw new Error('Requested vault path is outside OBSIDIAN_VAULT_DIR');
+  }
+
+  if (!fs.existsSync(DEFAULT_VAULT)) throw new Error('Configured Obsidian vault root does not exist');
+  if (!fs.existsSync(candidate)) throw new Error('Requested Obsidian vault does not exist');
+
+  const configuredRoot = fs.realpathSync(DEFAULT_VAULT);
+  const vaultPath = fs.realpathSync(candidate);
+  if (!isPathInside(configuredRoot, vaultPath)) {
+    throw new Error('Requested vault resolves outside OBSIDIAN_VAULT_DIR');
+  }
+  if (!fs.statSync(vaultPath).isDirectory()) {
+    throw new Error('Requested Obsidian vault is not a directory');
+  }
+
+  return { configuredRoot, vaultPath };
+}
+
 /**
  * 同步 Obsidian vault 到 embeddings 表。
  *
- * @param vaultPath vault 根目录路径（默认用 env OBSIDIAN_VAULT_DIR 或 cwd/data/obsidian-vault）
+ * @param vaultPath vault 根目录或其子目录；不能越出 OBSIDIAN_VAULT_DIR。
  */
 export async function syncObsidianVault(
   vaultPath: string = DEFAULT_VAULT
 ): Promise<ObsidianSyncResult> {
   initDb();
 
-  if (!fs.existsSync(vaultPath)) {
-    throw new Error(`Vault not found: ${vaultPath}`);
-  }
-  const stat = fs.statSync(vaultPath);
-  if (!stat.isDirectory()) {
-    throw new Error(`Not a directory: ${vaultPath}`);
-  }
+  const resolved = resolveVaultPath(vaultPath);
+  const safeVaultPath = resolved.vaultPath;
+  const vaultName = path.basename(safeVaultPath);
 
-  const vaultName = path.basename(path.resolve(vaultPath));
-
-  // 1. getOrCreate kb_sources row
   let srcRow = db
     .select()
     .from(kbSources)
@@ -62,7 +88,7 @@ export async function syncObsidianVault(
       .values({
         sourceType: 'obsidian',
         name: vaultName,
-        vaultPath: path.resolve(vaultPath),
+        vaultPath: safeVaultPath,
         fileCount: 0,
         lastSyncAt: null,
         fileMapJson: '{}',
@@ -75,7 +101,6 @@ export async function syncObsidianVault(
     sourceId = srcRow[0].id;
   }
 
-  // 2. 读旧 fileMap（relPath → hash）
   const srcRow2 = db
     .select()
     .from(kbSources)
@@ -88,33 +113,26 @@ export async function syncObsidianVault(
     oldFileMap = {};
   }
 
-  // 3. 递归扫 *.md
   const newFileMap: Record<string, string> = {};
   const scannedFiles: { relPath: string; content: string; hash: string }[] = [];
-  walkMarkdown(vaultPath, vaultPath, scannedFiles, newFileMap);
+  const budget = { files: 0, bytes: 0 };
+  walkMarkdown(safeVaultPath, safeVaultPath, scannedFiles, newFileMap, budget);
 
-  // 4. 对每个文件：hash 变化 → updateEmbeddings
   let added = 0;
   let updated = 0;
-  for (const f of scannedFiles) {
-    const oldHash = oldFileMap[f.relPath];
-    if (!oldHash) {
-      added++;
-    } else if (oldHash !== f.hash) {
-      updated++;
-    } else {
-      // 内容没变，跳过
-      continue;
-    }
+  for (const file of scannedFiles) {
+    const oldHash = oldFileMap[file.relPath];
+    if (!oldHash) added++;
+    else if (oldHash !== file.hash) updated++;
+    else continue;
 
     try {
-      await updateEmbeddings('obsidian_note', `obsidian:${f.relPath}`, f.content);
-    } catch (err) {
-      console.error('[obsidian] updateEmbeddings failed:', f.relPath, err);
+      await updateEmbeddings('obsidian_note', `obsidian:${file.relPath}`, file.content);
+    } catch (error) {
+      console.error('[obsidian] updateEmbeddings failed:', file.relPath, error);
     }
   }
 
-  // 5. 删除 vault 里已不存在的 obsidian_note docId 对应的 embeddings
   let removed = 0;
   for (const oldRelPath of Object.keys(oldFileMap)) {
     if (!(oldRelPath in newFileMap)) {
@@ -128,16 +146,16 @@ export async function syncObsidianVault(
           )
           .run();
         removed++;
-      } catch (err) {
-        console.error('[obsidian] deleteEmbeddings failed:', oldRelPath, err);
+      } catch (error) {
+        console.error('[obsidian] deleteEmbeddings failed:', oldRelPath, error);
       }
     }
   }
 
-  // 6. 更新 kb_sources
   const now = new Date().toISOString();
   db.update(kbSources)
     .set({
+      vaultPath: safeVaultPath,
       fileCount: scannedFiles.length,
       lastSyncAt: now,
       fileMapJson: JSON.stringify(newFileMap),
@@ -155,15 +173,15 @@ export async function syncObsidianVault(
   };
 }
 
-/**
- * 递归扫 .md 文件，跳过 EXCLUDED_DIRS。
- */
 function walkMarkdown(
   rootDir: string,
   currentDir: string,
   out: { relPath: string; content: string; hash: string }[],
-  fileMap: Record<string, string>
+  fileMap: Record<string, string>,
+  budget: { files: number; bytes: number },
 ): void {
+  if (budget.files >= MAX_FILES || budget.bytes >= MAX_TOTAL_BYTES) return;
+
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(currentDir, { withFileTypes: true });
@@ -172,30 +190,38 @@ function walkMarkdown(
   }
 
   for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue;
-    if (EXCLUDED_DIRS.includes(entry.name)) continue;
+    if (budget.files >= MAX_FILES || budget.bytes >= MAX_TOTAL_BYTES) return;
+    if (entry.name.startsWith('.') || EXCLUDED_DIRS.has(entry.name)) continue;
 
     const fullPath = path.join(currentDir, entry.name);
 
-    if (entry.isSymbolicLink()) {
-      try {
-        const realPath = fs.realpathSync(fullPath);
-        if (fs.statSync(realPath).isDirectory()) {
-          walkMarkdown(rootDir, fullPath, out, fileMap);
-        }
-      } catch { /* skip broken symlinks */ }
-    } else if (entry.isDirectory()) {
-      walkMarkdown(rootDir, fullPath, out, fileMap);
-    } else if (entry.isFile() && entry.name.endsWith('.md')) {
-      try {
-        const content = fs.readFileSync(fullPath, 'utf8');
-        const relPath = path.relative(rootDir, fullPath);
-        const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
-        out.push({ relPath, content, hash });
-        fileMap[relPath] = hash;
-      } catch (err) {
-        console.error('[obsidian] read failed:', fullPath, err);
-      }
+    // Never follow symlinks. A vault-controlled symlink could otherwise escape
+    // the configured root and import unrelated host files into embeddings.
+    if (entry.isSymbolicLink()) continue;
+
+    if (entry.isDirectory()) {
+      walkMarkdown(rootDir, fullPath, out, fileMap, budget);
+      continue;
+    }
+
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue;
+
+    try {
+      const stat = fs.statSync(fullPath);
+      if (stat.size > MAX_FILE_BYTES) continue;
+      if (budget.bytes + stat.size > MAX_TOTAL_BYTES) return;
+
+      const content = fs.readFileSync(fullPath, 'utf8');
+      const relPath = path.relative(rootDir, fullPath).split(path.sep).join('/');
+      if (relPath === '..' || relPath.startsWith('../') || path.isAbsolute(relPath)) continue;
+
+      const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+      out.push({ relPath, content, hash });
+      fileMap[relPath] = hash;
+      budget.files += 1;
+      budget.bytes += stat.size;
+    } catch (error) {
+      console.error('[obsidian] read failed:', fullPath, error);
     }
   }
 }

@@ -1,0 +1,18 @@
+{
+  "listen_host": "127.0.0.1",
+  "listen_port": 9222,
+  "hosts": [
+    {
+      "id": "100.64.0.10",
+      "name": "example-server",
+      "tailscale_ip": "100.64.0.10",
+      "user": "user",
+      "port": 22,
+      "key_file": "~/.ssh/id_ed25519",
+      "auto_cmd": "tmux",
+      "reconnect": true,
+      "reconnect_interval": 10,
+      "enabled": true
+    }
+  ]
+}

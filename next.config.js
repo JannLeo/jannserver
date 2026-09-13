@@ -1,9 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The production Docker image copies .next/standalone, so make Next emit it.
+  output: 'standalone',
+  poweredByHeader: false,
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3'],
   },
-  outputFileTracing: false,
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'covers.openlibrary.org' },
@@ -11,27 +13,35 @@ const nextConfig = {
       { protocol: 'https', hostname: 'wfqqreader-1252317822.image.myqcloud.com' },
     ],
   },
-
-  typescript: {
-    // 跳过 TS 编译时检查，加快构建速度（类型错误不影响运行时）
-    ignoreBuildErrors: true,
-  },
   eslint: {
     ignoreDuringBuilds: true,
   },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), geolocation=(), microphone=(self)',
+          },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return [
-      // Proxy: Fincept API -> localhost:18080
       {
         source: '/api/v1/fincept/:path*',
         destination: 'http://localhost:18080/api/v1/fincept/:path*',
       },
-      // Proxy: DSA API -> localhost:8083
       {
         source: '/api/dsa/:path*',
         destination: 'http://localhost:8083/api/v1/:path*',
       },
-      // SPA fallback: all /stock/* routes that aren't real files serve index.html
       {
         source: '/stock/:path((?!.*\\.\\w+$).*)',
         destination: '/stock/index.html',

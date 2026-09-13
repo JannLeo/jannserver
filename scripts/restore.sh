@@ -1,13 +1,20 @@
-#!/bin/bash
-DATA_DIR="${1:-./data}"
-BACKUP_FILE="$2"
-DB_PATH="$DATA_DIR/app.db"
+#!/bin/sh
+set -eu
 
-if [ ! -f "$BACKUP_FILE" ]; then
-  echo "Usage: $0 [data_dir] <backup_file>"
-  echo "No backup file found at '$BACKUP_FILE'"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+if [ "$#" -lt 1 ]; then
+  echo "Usage: $0 [data_dir] <backup_file>" >&2
+  echo "   or: $0 <backup_file>" >&2
   exit 1
 fi
 
-cp "$BACKUP_FILE" "$DB_PATH"
-echo "Restored from: $BACKUP_FILE"
+# Backward-compatible form: restore.sh <data_dir> <backup_file>
+if [ "$#" -ge 2 ]; then
+  DATA_DIR=$1
+  DB_PATH="$DATA_DIR/app.db"
+  export DATA_DIR DB_PATH
+  shift
+fi
+
+exec node "$SCRIPT_DIR/restore.mjs" "$@"

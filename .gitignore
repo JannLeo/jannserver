@@ -6,4 +6,25 @@ data/
 !.gitkeep
 tools/MediaCrawler
 
+# Runtime repository clones live under data/repos. Ignore stale/manual clones at root.
+/repos/
+
+# Local runtime configuration with host/IP details
+config.json
+
 tsconfig.tsbuildinfo
+
+# Python virtual environments / caches
+.venv/
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local logs, backups and OS files
+*.log
+*.bak
+*.bak_*
+*.tmp
+.DS_Store
+coverage/

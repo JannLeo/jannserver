@@ -1,80 +1,142 @@
 #!/usr/bin/env node
 /**
- * backup.mjs — Personal Workspace 数据备份脚本
- * 
- * 使用 better-sqlite3 backup() API 创建一致的 SQLite 快照，
- * 配合 tar 打包 data 目录（app.db + memos + notes + daily + uploads）
- * 
- * 输出: /data/backups/workspace_YYYY-MM-DD_HHMMSS.tar.gz
- * 
- * 用法:
- *   node scripts/backup.mjs
+ * Create a consistent backup of jannserver data.
+ *
+ * - Uses better-sqlite3's online backup API for every root-level SQLite DB.
+ * - Never archives live WAL/SHM files.
+ * - Copies non-database data into an isolated staging directory.
+ * - Avoids shell string construction for tar invocation.
  */
 
-import { execSync } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
-import { dirname, join } from 'path';
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { spawnSync } from 'child_process';
+import { tmpdir } from 'os';
+import { basename, dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR   = join(__dirname, '..', 'data');
-const BACKUP_DIR = join(DATA_DIR, 'backups');
-const DB_PATH    = join(DATA_DIR, 'app.db');
-const TIMESTAMP  = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-const OUTPUT     = join(BACKUP_DIR, `workspace_${TIMESTAMP}.tar.gz`);
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const projectDir = resolve(scriptDir, '..');
+const configuredDbPath = resolve(process.env.DB_PATH || join(projectDir, 'data', 'app.db'));
+const DATA_DIR = resolve(process.env.DATA_DIR || dirname(configuredDbPath));
+const BACKUP_DIR = resolve(process.env.BACKUP_DIR || join(DATA_DIR, 'backups'));
+const TIMESTAMP = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const OUTPUT = join(BACKUP_DIR, `workspace_${TIMESTAMP}.tar.gz`);
+const DB_RE = /\.(?:db|sqlite|sqlite3)$/i;
+const DB_SIDECAR_RE = /\.(?:db|sqlite|sqlite3)-(?:wal|shm|journal)$/i;
 
-// ── 验证 ──────────────────────────────────────────────
-if (!existsSync(DB_PATH)) {
-  console.error('ERROR: app.db not found at', DB_PATH);
+if (!existsSync(configuredDbPath)) {
+  console.error('ERROR: database not found at', configuredDbPath);
   process.exit(1);
 }
-if (!existsSync(BACKUP_DIR)) {
-  mkdirSync(BACKUP_DIR, { recursive: true });
+mkdirSync(BACKUP_DIR, { recursive: true });
+
+const stageDir = mkdtempSync(join(tmpdir(), 'jannserver-backup-'));
+const snappedDatabases = [];
+
+function runTar(args) {
+  const result = spawnSync('tar', args, { stdio: 'inherit' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`tar exited with status ${result.status}`);
 }
 
-// ── SQLite WAL checkpoint + 快照 ─────────────────────
-let useSnapshot = false;
+function ensureSafeSource(source, name) {
+  const stat = lstatSync(source);
+  if (stat.isSymbolicLink()) {
+    console.warn(`⚠ 跳过符号链接: ${name}`);
+    return false;
+  }
+  return true;
+}
+
+async function snapshotDatabase(Database, source, destination) {
+  const db = new Database(source, { readonly: true, fileMustExist: true });
+  try {
+    await db.backup(destination);
+  } finally {
+    db.close();
+  }
+
+  const snapshot = new Database(destination, { readonly: true, fileMustExist: true });
+  try {
+    const check = snapshot.pragma('quick_check', { simple: true });
+    if (check !== 'ok') throw new Error(`SQLite quick_check failed for ${basename(source)}: ${check}`);
+  } finally {
+    snapshot.close();
+  }
+}
+
 try {
   const Database = (await import('better-sqlite3')).default;
-  const db = Database(DB_PATH, { readonly: true });
+  const entries = readdirSync(DATA_DIR, { withFileTypes: true });
 
-  // WAL checkpoint — 刷入所有未提交的 WAL 内容
-  db.pragma('wal_checkpoint(TRUNCATE)');
+  for (const entry of entries) {
+    if (entry.name === 'backups') continue;
 
-  // 使用 backup() API 导出一致的快照到临时文件
-  const SNAPSHOT_PATH = join(BACKUP_DIR, `snapshot_${TIMESTAMP}.db`);
-  const backup = db.backup(SNAPSHOT_PATH);
-  await new Promise((res, rej) => {
-    backup.step(-1);
-    backup.finish().then(res).catch(rej);
-  });
-  db.close();
-  useSnapshot = true;
-  console.log(`✓ SQLite snapshot: ${SNAPSHOT_PATH}`);
-} catch (err) {
-  console.error('⚠ WAL checkpoint 失败，使用实时 db 文件:', err.message);
-}
+    const source = join(DATA_DIR, entry.name);
+    const destination = join(stageDir, entry.name);
+    if (!ensureSafeSource(source, entry.name)) continue;
 
-// ── 打包 data 目录（排除 backups 自身） ─────────────
-const items = readdirSync(DATA_DIR).filter(n => n !== 'backups');
-const itemArgs = items.map(n => `"${n}"`).join(' ');
-const cmd = `tar czf "${OUTPUT}" -C "${DATA_DIR}" ${itemArgs}`;
-console.log('→', cmd);
+    if (entry.isFile() && DB_RE.test(entry.name)) {
+      console.log(`→ SQLite snapshot: ${entry.name}`);
+      await snapshotDatabase(Database, source, destination);
+      snappedDatabases.push(entry.name);
+      continue;
+    }
 
-try {
-  execSync(cmd, { cwd: DATA_DIR, stdio: 'pipe' });
+    if (entry.isFile() && DB_SIDECAR_RE.test(entry.name)) {
+      continue;
+    }
+
+    cpSync(source, destination, {
+      recursive: entry.isDirectory(),
+      force: true,
+      dereference: false,
+      errorOnExist: false,
+    });
+  }
+
+  if (!snappedDatabases.includes(basename(configuredDbPath))) {
+    const destination = join(stageDir, basename(configuredDbPath));
+    console.log(`→ SQLite snapshot: ${basename(configuredDbPath)}`);
+    await snapshotDatabase(Database, configuredDbPath, destination);
+    snappedDatabases.push(basename(configuredDbPath));
+  }
+
+  writeFileSync(
+    join(stageDir, 'backup-manifest.json'),
+    JSON.stringify(
+      {
+        format: 2,
+        createdAt: new Date().toISOString(),
+        databases: snappedDatabases.sort(),
+      },
+      null,
+      2,
+    ) + '\n',
+    'utf8',
+  );
+
+  runTar(['-czf', OUTPUT, '-C', stageDir, '.']);
+
   const size = statSync(OUTPUT).size;
-  const sizeMB = (size / 1024 / 1024).toFixed(2);
-  console.log(`✓ 备份完成: ${OUTPUT} (${sizeMB} MB)`);
+  console.log(`✓ 备份完成: ${OUTPUT} (${(size / 1024 / 1024).toFixed(2)} MB)`);
+  console.log(`✓ SQLite 快照: ${snappedDatabases.join(', ')}`);
   console.log(`BACKUP_FILE=${OUTPUT}`);
   console.log(`BACKUP_SIZE=${size}`);
-} catch (e) {
-  console.error('ERROR: tar 打包失败:', e.message);
-  process.exit(1);
-}
-
-// ── 清理临时 snapshot 文件 ──────────────────────────
-if (useSnapshot) {
-  const snapshot = join(BACKUP_DIR, `snapshot_${TIMESTAMP}.db`);
-  try { execSync(`rm -f "${snapshot}"`); } catch (_) {}
+} catch (error) {
+  console.error('ERROR: 备份失败:', error instanceof Error ? error.message : String(error));
+  try { rmSync(OUTPUT, { force: true }); } catch {}
+  process.exitCode = 1;
+} finally {
+  rmSync(stageDir, { recursive: true, force: true });
 }

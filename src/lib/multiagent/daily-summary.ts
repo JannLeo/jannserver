@@ -1,7 +1,6 @@
 // ─── Daily Summary Multi-Agent DAG ─────────────────────────────────────────
 
-import { AgentNode, DagDefinition, executeDag, DagResult, getAiConfig, callLlm } from './index';
-import type { RunContext } from './types';
+import { AgentNode, DagDefinition, executeDag, DagResult, callLlm } from './index';
 import { db } from '../db/index';
 import { tasks, notes, memos, dailyPages } from '../db/schema';
 import { sql, eq } from 'drizzle-orm';
@@ -27,8 +26,8 @@ async function collectTasks(date: string) {
     .limit(20)
     .all();
 
-  const completed = todayTasks.filter(t => t.status === 'done');
-  const pending = todayTasks.filter(t => t.status !== 'done');
+  const completed = todayTasks.filter((task) => task.status === 'done');
+  const pending = todayTasks.filter((task) => task.status !== 'done');
 
   return {
     total: todayTasks.length,
@@ -38,6 +37,8 @@ async function collectTasks(date: string) {
     pendingTasks: pending,
   };
 }
+
+type TaskCollection = Awaited<ReturnType<typeof collectTasks>>;
 
 /** 收集今日笔记数据 */
 async function collectNotes(date: string) {
@@ -90,26 +91,37 @@ async function collectMemos(date: string) {
 async function collectCommits(date: string) {
   try {
     const activity = await getRepoActivity(date);
-    const allCommits = activity.repos.flatMap(r =>
-      r.commits.slice(0, 10).map(c => ({
-        repoName: r.repoName,
-        shortHash: c.shortHash,
-        message: c.message,
-        changedFileCount: c.changedFileCount,
-      }))
+    const allCommits = activity.repos.flatMap((repo) =>
+      repo.commits.slice(0, 10).map((commit) => ({
+        repoName: repo.repoName,
+        shortHash: commit.shortHash,
+        message: commit.message,
+        changedFileCount: commit.changedFileCount,
+      })),
     );
     return {
       totalCommits: allCommits.length,
-      repos: activity.repos.map(r => ({
-        name: r.repoName,
-        commitCount: r.commits.length,
+      repos: activity.repos.map((repo) => ({
+        name: repo.repoName,
+        commitCount: repo.commits.length,
       })),
       commits: allCommits,
     };
   } catch {
-    return { totalCommits: 0, repos: [], commits: [] };
+    return {
+      totalCommits: 0,
+      repos: [] as Array<{ name: string; commitCount: number }>,
+      commits: [] as Array<{
+        repoName: string;
+        shortHash: string;
+        message: string;
+        changedFileCount: number;
+      }>,
+    };
   }
 }
+
+type CommitCollection = Awaited<ReturnType<typeof collectCommits>>;
 
 /** 收集 Daily 页面数据 */
 async function collectDaily(date: string) {
@@ -119,7 +131,9 @@ async function collectDaily(date: string) {
       const content = readMarkdown(dailyRow.filePath) || '';
       return { hasContent: true, content: content.slice(0, 2000) };
     }
-  } catch {}
+  } catch {
+    // Missing or unreadable daily pages should not fail the whole summary DAG.
+  }
   return { hasContent: false, content: '' };
 }
 
@@ -129,7 +143,7 @@ const collectTasksNode: AgentNode = {
   name: '收集任务数据',
   deps: [],
   fn: async (_, ctx) => {
-    const date = (ctx as any).date;
+    const date = String(ctx.date || '');
     ctx.log('收集今日任务...');
     return collectTasks(date);
   },
@@ -142,7 +156,7 @@ const collectNotesNode: AgentNode = {
   name: '收集笔记数据',
   deps: [],
   fn: async (_, ctx) => {
-    const date = (ctx as any).date;
+    const date = String(ctx.date || '');
     ctx.log('收集今日笔记...');
     return collectNotes(date);
   },
@@ -155,7 +169,7 @@ const collectMemosNode: AgentNode = {
   name: '收集备忘录数据',
   deps: [],
   fn: async (_, ctx) => {
-    const date = (ctx as any).date;
+    const date = String(ctx.date || '');
     ctx.log('收集今日备忘录...');
     return collectMemos(date);
   },
@@ -168,7 +182,7 @@ const collectCommitsNode: AgentNode = {
   name: '收集 GitHub 提交',
   deps: [],
   fn: async (_, ctx) => {
-    const date = (ctx as any).date;
+    const date = String(ctx.date || '');
     ctx.log('收集 GitHub 提交...');
     return collectCommits(date);
   },
@@ -181,7 +195,7 @@ const collectDailyNode: AgentNode = {
   name: '收集 Daily 内容',
   deps: [],
   fn: async (_, ctx) => {
-    const date = (ctx as any).date;
+    const date = String(ctx.date || '');
     ctx.log('收集 Daily 页面...');
     return collectDaily(date);
   },
@@ -194,10 +208,17 @@ const analyzeTasksNode: AgentNode = {
   name: '分析任务完成情况',
   deps: ['collect_tasks'],
   fn: async (inputs) => {
-    const { completedTasks, pendingTasks } = inputs['collect_tasks'];
-    
+    const { completedTasks, pendingTasks } = inputs['collect_tasks'] as TaskCollection;
+
     if (!completedTasks.length && !pendingTasks.length) {
-      return { summary: '今日无任务记录', keyInsights: [] };
+      return {
+        summary: '今日无任务记录',
+        keyInsights: [],
+        completedCount: 0,
+        pendingCount: 0,
+        completedTasks,
+        pendingTasks,
+      };
     }
 
     const systemPrompt = `你是一个任务分析助手。请分析今日的任务完成情况，提取关键洞察。
@@ -212,23 +233,25 @@ const analyzeTasksNode: AgentNode = {
 - 用中文回答
 - 简洁有力，2-3 句话总结
 - 提取 1-3 个关键洞察`;
-    
+
     const userPrompt = `今日任务完成情况：
 
 已完成 (${completedTasks.length}):
-${completedTasks.map(t => `- ${t.title} (优先级: ${t.priority})`).join('\n') || '无'}
+${completedTasks.map((task) => `- ${task.title} (优先级: ${task.priority})`).join('\n') || '无'}
 
 未完成 (${pendingTasks.length}):
-${pendingTasks.map(t => `- ${t.title} (优先级: ${t.priority})`).join('\n') || '无'}
+${pendingTasks.map((task) => `- ${task.title} (优先级: ${task.priority})`).join('\n') || '无'}
 
 请分析并给出关键洞察。`;
 
     const result = await callLlm(systemPrompt, userPrompt, { temperature: 0.3 });
     return {
       summary: result.content,
-      keyInsights: result.content.split('\n').filter(l => l.trim()),
+      keyInsights: result.content.split('\n').filter((line) => line.trim()),
       completedCount: completedTasks.length,
       pendingCount: pendingTasks.length,
+      completedTasks,
+      pendingTasks,
     };
   },
   timeout: 60_000,
@@ -240,10 +263,10 @@ const analyzeCommitsNode: AgentNode = {
   name: '分析编码活动',
   deps: ['collect_commits'],
   fn: async (inputs) => {
-    const { commits, totalCommits, repos } = inputs['collect_commits'];
-    
+    const { commits, totalCommits, repos } = inputs['collect_commits'] as CommitCollection;
+
     if (!totalCommits) {
-      return { summary: '今日无 GitHub 提交', keyInsights: [] };
+      return { summary: '今日无 GitHub 提交', keyInsights: [], totalCommits: 0, topRepo: '' };
     }
 
     const systemPrompt = `你是一个代码活动分析助手。请分析今日的 GitHub 提交活动，提取关键信息。
@@ -258,12 +281,14 @@ const analyzeCommitsNode: AgentNode = {
 - 用中文回答
 - 简洁，1-2 句话总结整体活动
 - 重点突出有意义的提交`;
-    
-    const commitList = commits.map(c => `[${c.repoName}] ${c.shortHash} ${c.message} (+${c.changedFileCount} 文件)`).join('\n');
+
+    const commitList = commits
+      .map((commit) => `[${commit.repoName}] ${commit.shortHash} ${commit.message} (+${commit.changedFileCount} 文件)`)
+      .join('\n');
     const userPrompt = `今日 GitHub 提交 (${totalCommits} 次):
 
 仓库分布:
-${repos.map(r => `- ${r.name}: ${r.commitCount} 次提交`).join('\n')}
+${repos.map((repo) => `- ${repo.name}: ${repo.commitCount} 次提交`).join('\n')}
 
 详细提交:
 ${commitList}
@@ -271,11 +296,12 @@ ${commitList}
 请分析今日编码活动。`;
 
     const result = await callLlm(systemPrompt, userPrompt, { temperature: 0.3 });
+    const topRepo = [...repos].sort((a, b) => b.commitCount - a.commitCount)[0]?.name || '';
     return {
       summary: result.content,
-      keyInsights: result.content.split('\n').filter(l => l.trim()),
+      keyInsights: result.content.split('\n').filter((line) => line.trim()),
       totalCommits,
-      topRepo: repos.sort((a, b) => b.commitCount - a.commitCount)[0]?.name || '',
+      topRepo,
     };
   },
   timeout: 60_000,
@@ -289,8 +315,8 @@ const generateSummaryNode: AgentNode = {
   fn: async (inputs) => {
     const taskAnalysis = inputs['analyze_tasks'];
     const commitAnalysis = inputs['analyze_commits'];
-    const notes = inputs['collect_notes'];
-    const memos = inputs['collect_memos'];
+    const notesData = inputs['collect_notes'];
+    const memosData = inputs['collect_memos'];
     const daily = inputs['collect_daily'];
 
     const systemPrompt = `你是一个专业的工作日报助手。请基于以下信息生成一份精美的日报。
@@ -329,28 +355,26 @@ const generateSummaryNode: AgentNode = {
 5. 总字数控制在 300-500 字`;
 
     const contextParts: string[] = [];
-    
+
     contextParts.push(`## 任务分析\n${taskAnalysis?.summary || '暂无任务数据'}`);
-    contextParts.push(`\n已完成任务 (${taskAnalysis?.completedCount || 0}):\n${(taskAnalysis?.completedTasks || []).map((t: any) => `- ${t.title}`).join('\n') || '无'}`);
-    contextParts.push(`\n未完成任务 (${taskAnalysis?.pendingCount || 0}):\n${(taskAnalysis?.pendingTasks || []).map((t: any) => `- ${t.title}`).join('\n') || '无'}`);
+    contextParts.push(`\n已完成任务 (${taskAnalysis?.completedCount || 0}):\n${(taskAnalysis?.completedTasks || []).map((task: { title: string }) => `- ${task.title}`).join('\n') || '无'}`);
+    contextParts.push(`\n未完成任务 (${taskAnalysis?.pendingCount || 0}):\n${(taskAnalysis?.pendingTasks || []).map((task: { title: string }) => `- ${task.title}`).join('\n') || '无'}`);
 
     contextParts.push(`\n\n## 编码活动\n${commitAnalysis?.summary || '今日无提交'}`);
 
-    if (notes?.count > 0) {
-      contextParts.push(`\n\n## 今日笔记 (${notes.count} 篇)\n${notes.notes.map((n: any) => `- ${n.title || '无标题'}`).join('\n')}`);
+    if (notesData?.count > 0) {
+      contextParts.push(`\n\n## 今日笔记 (${notesData.count} 篇)\n${notesData.notes.map((note: { title?: string | null }) => `- ${note.title || '无标题'}`).join('\n')}`);
     }
 
-    if (memos?.count > 0) {
-      contextParts.push(`\n\n## 今日备忘录 (${memos.count} 条)\n${memos.memos.map((m: any) => `- ${(m.excerpt || '').slice(0, 100)}`).join('\n')}`);
+    if (memosData?.count > 0) {
+      contextParts.push(`\n\n## 今日备忘录 (${memosData.count} 条)\n${memosData.memos.map((memo: { excerpt?: string | null }) => `- ${(memo.excerpt || '').slice(0, 100)}`).join('\n')}`);
     }
 
     if (daily?.hasContent) {
       contextParts.push(`\n\n## Daily 页面内容\n${daily.content.slice(0, 1500)}`);
     }
 
-    const userPrompt = contextParts.join('\n');
-
-    const result = await callLlm(systemPrompt, userPrompt, { temperature: 0.4 });
+    const result = await callLlm(systemPrompt, contextParts.join('\n'), { temperature: 0.4 });
     return {
       markdown: result.content,
       usage: result.usage,
@@ -364,16 +388,13 @@ export const dailySummaryDag: DagDefinition = {
   id: 'daily-summary',
   name: 'AI 日总结生成',
   nodes: [
-    // 第一层：并行收集数据（5 个节点）
     collectTasksNode,
     collectNotesNode,
     collectMemosNode,
     collectCommitsNode,
     collectDailyNode,
-    // 第二层：并行分析（2 个节点）
     analyzeTasksNode,
     analyzeCommitsNode,
-    // 第三层：汇总生成（1 个节点）
     generateSummaryNode,
   ],
 };
@@ -381,17 +402,14 @@ export const dailySummaryDag: DagDefinition = {
 /** 执行日总结 DAG */
 export async function runDailySummaryDag(
   date: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<DagResult & { summary: string; nodeOutputs: Record<string, any> }> {
-  const initialInputs = { date };
-  const result = await executeDag(dailySummaryDag, initialInputs, signal);
-  
+  const result = await executeDag(dailySummaryDag, { date }, signal);
   const summary = result.outputs['generate_summary']?.markdown || '';
-  const nodeOutputs = result.outputs;
-  
+
   return {
     ...result,
     summary,
-    nodeOutputs,
+    nodeOutputs: result.outputs,
   };
 }

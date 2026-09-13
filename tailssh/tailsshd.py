@@ -3,6 +3,10 @@ tailsshd — Tailscale SSH 连接管理守护进程
 
 在同一 Web 界面管理多台 Tailscale 节点，
 支持自动执行预设命令（如启动 hermes）、断线重连、持久化运行。
+
+The daemon is intentionally loopback-only by default. Browser/API access should
+flow through the authenticated jannserver gateway instead of exposing port 9222
+on the network directly.
 """
 from __future__ import annotations
 
@@ -10,10 +14,6 @@ import asyncio
 import json
 import os
 import signal
-import subprocess
-import sys
-import time
-import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -22,8 +22,10 @@ from typing import Optional
 # Config
 # ---------------------------------------------------------------------------
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
-SESSIONS_DIR = Path(__file__).parent / "sessions"
+TAILSSH_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = Path(os.environ.get("TAILSSH_CONFIG", str(TAILSSH_DIR / "config.json"))).expanduser()
+SESSIONS_DIR = TAILSSH_DIR / "sessions"
+
 
 @dataclass
 class HostConfig:
@@ -46,14 +48,19 @@ class HostConfig:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
 
 
+def default_config() -> dict:
+    return {"listen_host": "127.0.0.1", "listen_port": 9222, "hosts": []}
+
+
 def load_config() -> dict:
     if CONFIG_PATH.exists():
-        return json.loads(CONFIG_PATH.read_text())
-    return {"listen_host": "0.0.0.0", "listen_port": 9222, "hosts": []}
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    return default_config()
 
 
 def save_config(cfg: dict):
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -134,11 +141,9 @@ class SessionManager:
                 session.connected = True
                 await self._broadcast_status(session.host_id, "connected")
 
-                # Start reading stdout & stderr concurrently
                 read_stdout = asyncio.create_task(self._read_pipe(session, session.process.stdout, "output"))
                 read_stderr = asyncio.create_task(self._read_pipe(session, session.process.stderr, "output"))
 
-                # If auto_cmd is set, send it after subprocess starts
                 if session.config.auto_cmd:
                     auto = session.config.auto_cmd.strip()
                     if auto:
@@ -159,22 +164,12 @@ class SessionManager:
             if session._stop_event.is_set() or not session.config.reconnect:
                 break
 
-            # Reconnect delay — show a message to the user
             await self._broadcast_status(session.host_id, f"reconnecting in {session.config.reconnect_interval}s")
-            try:
-                await asyncio.wait_for(
-                    self._wait_for_stop_or_timeout(session.config.reconnect_interval),
-                    timeout=None,
-                )
-            except asyncio.TimeoutError:
-                continue
+            await self._wait_for_stop_or_timeout(session.config.reconnect_interval)
 
     async def _wait_for_stop_or_timeout(self, timeout: int):
         try:
-            await asyncio.wait_for(
-                asyncio.get_event_loop().create_future(),
-                timeout=timeout,
-            )
+            await asyncio.wait_for(session_sleep_event(), timeout=timeout)
         except asyncio.TimeoutError:
             pass
 
@@ -222,7 +217,6 @@ class SessionManager:
                 except Exception:
                     session.ws_clients.discard(ws)
 
-        # Also push human-readable status to terminal output
         if status == "connected":
             term_msg = "\r\n\x1b[32m[已连接]\x1b[0m\r\n"
         elif status == "disconnected":
@@ -268,28 +262,23 @@ class SessionManager:
             await self.stop_session(hid)
 
 
+async def session_sleep_event():
+    await asyncio.Future()
+
+
 # ---------------------------------------------------------------------------
 # Web App (FastAPI)
 # ---------------------------------------------------------------------------
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 app = FastAPI(title="TailSSH Manager")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-manager: SessionManager = None  # initialized in startup
+manager: SessionManager | None = None
 
 
-# Models
 class HostCreate(BaseModel):
     id: Optional[str] = None
     name: str
@@ -315,8 +304,6 @@ class HostUpdate(BaseModel):
     enabled: bool | None = None
 
 
-# ---------- REST API ----------
-
 @app.on_event("startup")
 async def startup():
     global manager
@@ -331,12 +318,18 @@ async def shutdown():
         await manager.shutdown()
 
 
+def require_manager() -> SessionManager:
+    if manager is None:
+        raise HTTPException(503, "TailSSH is still starting")
+    return manager
+
+
 @app.get("/api/hosts")
 async def list_hosts():
-    """Return all hosts with their connection status."""
+    mgr = require_manager()
     result = []
-    for hid, hc in manager.hosts.items():
-        session = manager.sessions.get(hid)
+    for hid, hc in mgr.hosts.items():
+        session = mgr.sessions.get(hid)
         result.append({
             **hc.to_dict(),
             "connected": session.connected if session else False,
@@ -346,71 +339,69 @@ async def list_hosts():
 
 @app.post("/api/hosts")
 async def create_host(host: HostCreate):
+    mgr = require_manager()
     data = host.model_dump()
     if not data.get("id"):
-        data["id"] = data["tailscale_ip"]  # use tailscale_ip as id
-    if data["id"] in manager.hosts:
+        data["id"] = data["tailscale_ip"]
+    if data["id"] in mgr.hosts:
         raise HTTPException(400, f"Host '{data['id']}' already exists")
     hc = HostConfig.from_dict(data)
-    manager.add_host(hc)
-    await manager.start_session(hc.id)
+    mgr.add_host(hc)
+    await mgr.start_session(hc.id)
     return JSONResponse(hc.to_dict(), status_code=201)
 
 
 @app.put("/api/hosts/{host_id}")
 async def update_host(host_id: str, data: HostUpdate):
-    if host_id not in manager.hosts:
+    mgr = require_manager()
+    if host_id not in mgr.hosts:
         raise HTTPException(404, "Host not found")
     update_dict = {k: v for k, v in data.model_dump().items() if v is not None}
-    manager.update_host(host_id, update_dict)
-    hc = manager.hosts[host_id]
-    return JSONResponse(hc.to_dict())
+    mgr.update_host(host_id, update_dict)
+    return JSONResponse(mgr.hosts[host_id].to_dict())
 
 
 @app.delete("/api/hosts/{host_id}")
 async def delete_host(host_id: str):
-    if host_id not in manager.hosts:
+    mgr = require_manager()
+    if host_id not in mgr.hosts:
         raise HTTPException(404, "Host not found")
-    await manager.stop_session(host_id)
-    manager.remove_host(host_id)
+    await mgr.stop_session(host_id)
+    mgr.remove_host(host_id)
     return JSONResponse({"ok": True})
 
 
 @app.post("/api/hosts/{host_id}/reconnect")
 async def reconnect_host(host_id: str):
-    if host_id not in manager.hosts:
+    mgr = require_manager()
+    if host_id not in mgr.hosts:
         raise HTTPException(404, "Host not found")
-    await manager.stop_session(host_id)
-    # Reset stop event by removing old session
-    manager.sessions.pop(host_id, None)
-    await manager.start_session(host_id)
+    await mgr.stop_session(host_id)
+    mgr.sessions.pop(host_id, None)
+    await mgr.start_session(host_id)
     return JSONResponse({"ok": True})
 
 
 @app.get("/api/hosts/{host_id}/logs")
 async def get_host_logs(host_id: str, lines: int = 200):
-    """Return recent log lines from session buffer."""
-    # Could be expanded with file-based logging
+    require_manager()
     return JSONResponse({"lines": []})
 
 
-# ---------- WebSocket for terminal ----------
-
 @app.websocket("/ws/{host_id}")
 async def terminal_ws(ws: WebSocket, host_id: str):
+    mgr = require_manager()
     await ws.accept()
-    session = manager.sessions.get(host_id)
+    session = mgr.sessions.get(host_id)
     if not session:
         await ws.send_text(json.dumps({"type": "error", "message": f"Host '{host_id}' not found"}))
         await ws.close()
         return
 
-    # Create a per-websocket message queue
     queue: asyncio.Queue = asyncio.Queue()
     session.ws_clients.add(queue)
 
     try:
-        # Send current status
         await ws.send_text(json.dumps({
             "type": "status",
             "status": "connected" if session.connected else "disconnected",
@@ -431,7 +422,7 @@ async def terminal_ws(ws: WebSocket, host_id: str):
                 data = await ws.receive_text()
                 msg = json.loads(data)
                 if msg.get("type") == "stdin":
-                    await manager.write_stdin(host_id, msg.get("data", ""))
+                    await mgr.write_stdin(host_id, msg.get("data", ""))
         except WebSocketDisconnect:
             pass
         finally:
@@ -440,9 +431,7 @@ async def terminal_ws(ws: WebSocket, host_id: str):
         session.ws_clients.discard(queue)
 
 
-# ---------- Static / Web UI ----------
-
-WEB_DIR = Path(__file__).parent / "web"
+WEB_DIR = TAILSSH_DIR / "web"
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="web")
 
@@ -451,19 +440,16 @@ if WEB_DIR.exists():
 async def index():
     index_path = WEB_DIR / "index.html"
     if index_path.exists():
-        return HTMLResponse(index_path.read_text())
+        return HTMLResponse(index_path.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>TailSSH Manager</h1><p>Web UI not found</p>")
 
 
-# ---------------------------------------------------------------------------
-# Entrypoint
-# ---------------------------------------------------------------------------
-
 def main():
     import uvicorn
+
     cfg = load_config()
-    host = cfg.get("listen_host", "0.0.0.0")
-    port = cfg.get("listen_port", 9222)
+    host = os.environ.get("TAILSSH_HOST", cfg.get("listen_host", "127.0.0.1"))
+    port = int(os.environ.get("TAILSSH_PORT", cfg.get("listen_port", 9222)))
     print(f"🔌 TailSSH Manager starting on http://{host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="info", ws_ping_interval=30)
 

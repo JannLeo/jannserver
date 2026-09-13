@@ -2,14 +2,22 @@
   "name": "personal-workspace",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@8.15.9",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "check:gateway": "node --check gateway.js && node --check ws-proxy.js",
+    "check:data-scripts": "node --check scripts/backup.mjs && node --check scripts/restore.mjs",
+    "check": "pnpm check:gateway && pnpm check:data-scripts && pnpm typecheck && pnpm build",
     "init-admin": "tsx src/lib/init-admin.ts",
     "db:push": "drizzle-kit push",
-    "backup": "/usr/bin/node scripts/backup.mjs",
-    "restore": "/usr/bin/node scripts/restore.mjs"
+    "backup": "node scripts/backup.mjs",
+    "restore": "node scripts/restore.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.0",
