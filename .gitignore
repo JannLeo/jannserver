@@ -6,6 +6,9 @@ data/
 !.gitkeep
 tools/MediaCrawler
 
+# Local runtime configuration with host/IP details
+config.json
+
 tsconfig.tsbuildinfo
 
 # Python virtual environments / caches
