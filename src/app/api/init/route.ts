@@ -1,55 +1,81 @@
+import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { initDb, db } from '@/lib/db/index';
 import { users } from '@/lib/db/schema';
 import { hashSync } from 'bcryptjs';
 import { getIronSession } from 'iron-session';
 import { sessionOptions } from '@/lib/auth';
+import type { SessionData } from '@/lib/auth';
 
-// GET /api/init - 返回初始化状态
-export async function GET(req: NextRequest) {
-  initDb();
-  const existing = db.select().from(users).all();
-  return NextResponse.json({
-    initialized: existing.length > 0,
-    userCount: existing.length,
-  });
+function secureEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// POST /api/init - 执行初始化
+// GET /api/init - only expose whether first-run initialization is needed.
+export async function GET() {
+  initDb();
+  const existing = db.select({ id: users.id }).from(users).limit(1).all();
+  return NextResponse.json(
+    { initialized: existing.length > 0 },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+// POST /api/init - perform one-time initialization.
 export async function POST(req: NextRequest) {
-  // 检查 INIT_TOKEN
-  const initToken = req.headers.get('x-init-token');
-  const expected = process.env.INIT_TOKEN;
-  if (!expected || initToken !== expected) {
+  const provided = req.headers.get('x-init-token')?.trim() || '';
+  const expected = process.env.INIT_TOKEN?.trim() || '';
+
+  if (expected.length < 16) {
+    console.error('[init] INIT_TOKEN is missing or too short');
+    return NextResponse.json({ error: 'Initialization is not configured' }, { status: 503 });
+  }
+
+  if (!provided || !secureEqual(provided, expected)) {
     return NextResponse.json({ error: 'Invalid init token' }, { status: 403 });
   }
 
   initDb();
 
-  // users 表非空则拒绝
-  const existing = db.select().from(users).all();
+  const existing = db.select({ id: users.id }).from(users).limit(1).all();
   if (existing.length > 0) {
-    return NextResponse.json({ error: 'System already initialized' }, { status: 403 });
+    return NextResponse.json({ error: 'System already initialized' }, { status: 409 });
   }
 
-  const { username, password } = await req.json();
-  if (!username || !password) {
-    return NextResponse.json({ error: 'Missing username or password' }, { status: 400 });
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Request body must be JSON' }, { status: 400 });
+  }
+
+  const username = typeof body?.username === 'string' ? body.username.trim() : '';
+  const password = typeof body?.password === 'string' ? body.password : '';
+
+  if (!username || username.length > 128) {
+    return NextResponse.json({ error: 'Username is required and must be <= 128 characters' }, { status: 400 });
+  }
+  if (password.length < 12 || password.length > 4096) {
+    return NextResponse.json({ error: 'Password must be between 12 and 4096 characters' }, { status: 400 });
   }
 
   const now = new Date().toISOString();
-  db.insert(users).values({
+  const inserted = db.insert(users).values({
     username,
-    passwordHash: hashSync(password, 10),
+    passwordHash: hashSync(password, 12),
     createdAt: now,
-  }).run();
+  }).returning({ id: users.id, username: users.username }).get();
 
-  // auto login
-  const newUser = db.select().from(users).all()[0];
-  const res = NextResponse.json({ ok: true, username: newUser.username });
-  const session = await getIronSession(req, res, sessionOptions);
-  (session as any).userId = newUser.id;
-  (session as any).username = newUser.username;
+  const res = NextResponse.json(
+    { ok: true, username: inserted.username },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
+  const session = await getIronSession<SessionData>(req, res, sessionOptions);
+  session.userId = inserted.id;
+  session.username = inserted.username;
+  session.isLoggedIn = true;
   await session.save();
 
   return res;
