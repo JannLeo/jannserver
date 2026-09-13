@@ -72,7 +72,11 @@ function validateArchivePaths(file) {
   if (entries.length === 0) throw new Error('备份包为空');
 
   for (const entry of entries) {
-    const cleaned = entry.replace(/^\.\//, '');
+    // `tar -C <stage> .` legitimately records the archive root as `./`.
+    // It represents no extracted child path, so allow only this exact marker.
+    if (entry === '.' || entry === './') continue;
+
+    const cleaned = entry.replace(/^(?:\.\/)+/, '');
     const normalized = normalize(cleaned).replaceAll('\\', '/');
     if (!cleaned || cleaned.startsWith('/') || normalized === '..' || normalized.startsWith('../')) {
       throw new Error(`备份包包含不安全路径: ${entry}`);
