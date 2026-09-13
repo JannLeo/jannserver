@@ -6,14 +6,18 @@
 'use strict';
 
 const http = require('http');
-const { WebSocketServer } = require('ws');
+const { WebSocket, WebSocketServer } = require('ws');
 
-const PORT = parseInt(process.env.PROXY_PORT || '3001', 10);
+function boundedInt(raw, fallback, min, max) {
+  const value = Number.parseInt(raw || '', 10);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+const PORT = boundedInt(process.env.PROXY_PORT, 3001, 1, 65535);
 const HOST = process.env.PROXY_HOST || '127.0.0.1';
 const BACKEND_WS = process.env.BACKEND_WS || 'ws://127.0.0.1:9222';
-const MAX_WS_PAYLOAD = parseInt(process.env.MAX_WS_PAYLOAD || String(1024 * 1024), 10);
-
-const NativeWebSocket = globalThis.WebSocket;
+const MAX_WS_PAYLOAD = boundedInt(process.env.MAX_WS_PAYLOAD, 1024 * 1024, 1024, 16 * 1024 * 1024);
 
 const server = http.createServer();
 const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
@@ -33,42 +37,39 @@ wss.on('connection', (clientWs, request) => {
     return;
   }
 
-  const backend = new NativeWebSocket(`${BACKEND_WS}/ws/${encodeURIComponent(hostId)}`);
-  backend.binaryType = 'arraybuffer';
+  const backendBase = BACKEND_WS.replace(/\/$/, '');
+  const backend = new WebSocket(`${backendBase}/ws/${encodeURIComponent(hostId)}`, {
+    maxPayload: MAX_WS_PAYLOAD,
+  });
 
-  clientWs.on('message', (data) => {
-    if (backend.readyState === NativeWebSocket.OPEN) {
-      backend.send(data.toString());
+  clientWs.on('message', (data, isBinary) => {
+    if (backend.readyState === WebSocket.OPEN) {
+      backend.send(data, { binary: isBinary });
     }
   });
 
-  backend.onmessage = (event) => {
-    if (clientWs.readyState !== 1) return;
-    if (typeof event.data === 'string') {
-      clientWs.send(event.data);
-    } else if (event.data instanceof ArrayBuffer) {
-      clientWs.send(event.data);
-    } else {
-      clientWs.send(String(event.data));
+  backend.on('message', (data, isBinary) => {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(data, { binary: isBinary });
     }
-  };
+  });
 
   clientWs.on('close', () => {
-    if (backend.readyState === NativeWebSocket.OPEN || backend.readyState === NativeWebSocket.CONNECTING) {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) {
       backend.close();
     }
   });
 
-  backend.onclose = () => {
-    if (clientWs.readyState === 1) clientWs.close();
-  };
+  backend.on('close', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+  });
 
-  backend.onerror = () => {
-    if (clientWs.readyState === 1) clientWs.close(1011);
-  };
+  backend.on('error', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011);
+  });
 
   clientWs.on('error', () => {
-    if (backend.readyState === NativeWebSocket.OPEN || backend.readyState === NativeWebSocket.CONNECTING) {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) {
       backend.close();
     }
   });
