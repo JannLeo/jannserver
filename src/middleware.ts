@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIronSession } from 'iron-session';
-import { isAllowedHostname } from '@/lib/host-validation';
+import { hostnameFromHostHeader, isAllowedHostname } from '@/lib/host-validation';
 
 const EXACT_PUBLIC_PATHS = new Set([
   '/login',
@@ -82,12 +82,16 @@ function invalidHost(pathname: string): NextResponse {
 }
 
 export async function middleware(req: NextRequest) {
-  const { pathname, hostname } = req.nextUrl;
+  const { pathname } = req.nextUrl;
 
-  // Reject Host-header confusion before redirects or authentication. Exact hosts
-  // are the default; subdomains require an explicit `*.example.com` pattern.
-  if (process.env.NODE_ENV === 'production' && !isAllowedHostname(hostname)) {
-    return invalidHost(pathname);
+  // Validate the actual client-visible Host header rather than req.nextUrl's
+  // internally resolved hostname. Standalone Next may use the container hostname
+  // for nextUrl even when the incoming request correctly targets 127.0.0.1.
+  if (process.env.NODE_ENV === 'production') {
+    const requestHostname = hostnameFromHostHeader(req.headers.get('host'));
+    if (!requestHostname || !isAllowedHostname(requestHostname)) {
+      return invalidHost(pathname);
+    }
   }
 
   if (isPublicPath(pathname)) {
