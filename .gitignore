@@ -7,3 +7,18 @@ data/
 tools/MediaCrawler
 
 tsconfig.tsbuildinfo
+
+# Python virtual environments / caches
+.venv/
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local logs, backups and OS files
+*.log
+*.bak
+*.bak_*
+*.tmp
+.DS_Store
+coverage/
