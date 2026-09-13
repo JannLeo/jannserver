@@ -28,10 +28,71 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:gateway
+      - name: Data script syntax check
+        run: pnpm check:data-scripts
       - name: TypeScript check
         run: pnpm typecheck
       - name: TailSSH syntax check
         run: python3 -m py_compile tailssh/tailsshd.py
+      - name: Backup and restore round trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$RUNNER_TEMP/jannserver-backup-source"
+          TARGET="$RUNNER_TEMP/jannserver-restore-target"
+          mkdir -p "$SOURCE/notes" "$TARGET"
+
+          DB_PATH="$SOURCE/app.db" DATA_DIR="$SOURCE" node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const Database = require('better-sqlite3');
+          const db = new Database(process.env.DB_PATH);
+          db.exec(`
+            CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, password_hash TEXT, created_at TEXT);
+            CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT);
+            CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT);
+            CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT);
+            CREATE TABLE memos (id TEXT PRIMARY KEY, content TEXT);
+          `);
+          db.prepare('INSERT INTO tasks (id, title) VALUES (?, ?)').run('t1', 'backup round trip');
+          db.close();
+
+          const sessions = new Database(path.join(process.env.DATA_DIR, 'sessions.db'));
+          sessions.exec('CREATE TABLE agent_sessions (id TEXT PRIMARY KEY, status TEXT)');
+          sessions.prepare('INSERT INTO agent_sessions (id, status) VALUES (?, ?)').run('s1', 'idle');
+          sessions.close();
+
+          fs.writeFileSync(path.join(process.env.DATA_DIR, 'notes', 'roundtrip.md'), '# round trip\n', 'utf8');
+          NODE
+
+          DB_PATH="$SOURCE/app.db" DATA_DIR="$SOURCE" BACKUP_DIR="$SOURCE/backups" node scripts/backup.mjs
+          BACKUP_FILE="$(find "$SOURCE/backups" -maxdepth 1 -name 'workspace_*.tar.gz' -print -quit)"
+          test -n "$BACKUP_FILE"
+
+          DB_PATH="$SOURCE/app.db" DATA_DIR="$SOURCE" BACKUP_DIR="$SOURCE/backups" \
+            node scripts/restore.mjs --verify "$BACKUP_FILE"
+
+          DB_PATH="$TARGET/app.db" DATA_DIR="$TARGET" BACKUP_DIR="$SOURCE/backups" \
+            node scripts/restore.mjs --yes "$BACKUP_FILE"
+
+          DB_PATH="$TARGET/app.db" DATA_DIR="$TARGET" node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const Database = require('better-sqlite3');
+          const db = new Database(process.env.DB_PATH, { readonly: true });
+          const task = db.prepare('SELECT title FROM tasks WHERE id = ?').get('t1');
+          if (task?.title !== 'backup round trip') throw new Error('restored app.db content mismatch');
+          db.close();
+
+          const sessions = new Database(path.join(process.env.DATA_DIR, 'sessions.db'), { readonly: true });
+          const session = sessions.prepare('SELECT status FROM agent_sessions WHERE id = ?').get('s1');
+          if (session?.status !== 'idle') throw new Error('restored sessions.db content mismatch');
+          sessions.close();
+
+          if (!fs.existsSync(path.join(process.env.DATA_DIR, 'notes', 'roundtrip.md'))) {
+            throw new Error('restored note missing');
+          }
+          NODE
       - name: Production build
         env:
           SESSION_SECRET: ci-only-session-secret-0123456789abcdef0123456789abcdef
