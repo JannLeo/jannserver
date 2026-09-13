@@ -1,16 +1,30 @@
-const APP_CWD = process.env.APP_CWD || '/home/sz/workspace';
-const NODE_BIN = process.env.NODE_BIN || '/home/sz/.nvm/versions/node/v22.23.1/bin/node';
+const APP_CWD = process.env.APP_CWD || __dirname;
+const NODE_BIN = process.env.NODE_BIN || process.execPath;
+const NEXT_PORT = process.env.NEXT_PORT || '3002';
+
+const sharedAuthEnv = {
+  SESSION_SECRET: process.env.SESSION_SECRET,
+  INIT_TOKEN: process.env.INIT_TOKEN,
+  HERDR_API_KEY: process.env.HERDR_API_KEY,
+  DELEGATION_API_KEY: process.env.DELEGATION_API_KEY,
+  ALLOWED_HOSTS: process.env.ALLOWED_HOSTS || 'localhost,127.0.0.1',
+  ALLOW_HTTP_COOKIES: process.env.ALLOW_HTTP_COOKIES,
+};
 
 module.exports = {
   apps: [
     {
       name: 'personal-workspace',
       script: 'node_modules/.bin/next',
-      args: 'start -p 3002',
+      args: `start -p ${NEXT_PORT}`,
       cwd: APP_CWD,
       interpreter: NODE_BIN,
       env: {
         NODE_ENV: 'production',
+        ...sharedAuthEnv,
+        DB_PATH: process.env.DB_PATH,
+        RATE_LIMIT_WINDOW_MS: process.env.RATE_LIMIT_WINDOW_MS || '900000',
+        RATE_LIMIT_MAX_ATTEMPTS: process.env.RATE_LIMIT_MAX_ATTEMPTS || '5',
         AI_BASE_URL: process.env.AI_BASE_URL || 'http://127.0.0.1:12345/v1',
         AI_MODEL: process.env.AI_MODEL || 'MiniMax-M2.7',
         // Secrets must come from the process environment. Never commit them here.
@@ -35,6 +49,7 @@ module.exports = {
       cwd: APP_CWD,
       interpreter: NODE_BIN,
       env: {
+        PROXY_HOST: process.env.PROXY_HOST || '127.0.0.1',
         PROXY_PORT: process.env.PROXY_PORT || '3001',
         BACKEND_WS: process.env.BACKEND_WS || 'ws://127.0.0.1:9222',
       },
@@ -46,10 +61,11 @@ module.exports = {
       cwd: APP_CWD,
       interpreter: NODE_BIN,
       env: {
+        ...sharedAuthEnv,
         GATEWAY_PORT: process.env.GATEWAY_PORT || '3000',
-        NEXT_PORT: process.env.NEXT_PORT || '3002',
+        NEXT_PORT,
         WS_PROXY: process.env.WS_PROXY || 'ws://127.0.0.1:3001',
-        SESSION_SECRET: process.env.SESSION_SECRET,
+        OPENCODE_PORT: process.env.OPENCODE_PORT || '34567',
       },
       max_memory_restart: '128M',
     },
