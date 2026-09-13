@@ -2,44 +2,63 @@
 import * as fs from 'fs';
 import * as nodePath from 'path';
 import * as crypto from 'crypto';
-import { execFile as execFileAsync } from 'child_process';
 import { spawn } from 'child_process';
 import { db } from './db/index';
 import { updateFts } from './search';
 import { eq, and } from 'drizzle-orm';
 import { repoSources, repoDocuments } from './db/schema';
+import { REPOS_BASE_DIR, isPathUnderReposBase } from './paths';
+
 // @ts-ignore - Drizzle sqlite type inference issue with $defaultFn columns
 const srcT = repoSources as any;
 const docT = repoDocuments as any;
-
 const path = nodePath;
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-// All data/repo paths are derived from environment variables via lib/paths.ts.
-// This avoids hardcoding machine-specific absolute paths.
-import { REPOS_BASE_DIR, isPathUnderReposBase } from './paths';
+const ALLOWED_REPO_OWNER = 'JannLeo';
+const REPO_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 
-const ALLOWED_REPOS_PREFIX = 'https://github.com/JannLeo/';
+function parseRepoUrl(url: string): { owner: string; repo: string } | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' || u.hostname !== 'github.com') return null;
+    if (u.username || u.password || u.search || u.hash) return null;
+
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length !== 2 || parts[0] !== ALLOWED_REPO_OWNER) return null;
+    const repo = parts[1].endsWith('.git') ? parts[1].slice(0, -4) : parts[1];
+    if (!REPO_NAME_RE.test(repo)) return null;
+    return { owner: parts[0], repo };
+  } catch {
+    return null;
+  }
+}
 
 function toSshUrl(httpsUrl: string): string {
-  const repo = httpsUrl.replace(/^https:\/\/github\.com\//, '');
-  return `git@github.com:${repo}`;
+  const parsed = parseRepoUrl(httpsUrl);
+  if (!parsed) throw new Error('Invalid GitHub repository URL');
+  return `git@github.com:${parsed.owner}/${parsed.repo}.git`;
 }
 
 // ─── Repo Validation ──────────────────────────────────────────────────────────
 export function validateRepoUrl(url: string): boolean {
-  if (!url.startsWith(ALLOWED_REPOS_PREFIX)) return false;
-  try {
-    const u = new URL(url);
-    return u.hostname === 'github.com';
-  } catch { return false; }
+  return typeof url === 'string' && parseRepoUrl(url) !== null;
+}
+
+export function validateRepoName(name: string): boolean {
+  return typeof name === 'string' && REPO_NAME_RE.test(name);
+}
+
+export function validateBranch(branch: string): boolean {
+  if (typeof branch !== 'string' || !BRANCH_RE.test(branch)) return false;
+  return !branch.includes('..') && !branch.includes('//') && !branch.endsWith('/') && !branch.endsWith('.lock');
 }
 
 export function validateLocalPath(localPath: string): boolean {
   return isPathUnderReposBase(localPath);
 }
 
-// ─── Repo CRUD ─────────────────────────────────────────────────────────────────
+// ─── Repo CRUD ────────────────────────────────────────────────────────────────
 export function getAllRepos() {
   return db.select().from(repoSources).all();
 }
@@ -49,14 +68,18 @@ export function getRepoById(id: number) {
 }
 
 export function createRepo(data: { name: string; url: string; branch: string }) {
+  if (!validateRepoName(data.name) || !validateRepoUrl(data.url) || !validateBranch(data.branch)) {
+    throw new Error('Invalid repository configuration');
+  }
   const localPath = path.join(REPOS_BASE_DIR, data.name);
-  const result = db.insert(repoSources).values({
+  if (!validateLocalPath(localPath)) throw new Error('Invalid repository path');
+
+  return db.insert(repoSources).values({
     name: data.name,
     url: data.url,
     branch: data.branch || 'main',
     localPath,
   }).returning().get();
-  return result;
 }
 
 export function deleteRepo(id: number) {
@@ -72,7 +95,7 @@ export function getDocumentsByRepoId(repoId: number) {
   return db.select().from(repoDocuments).where(eq(docT.repoId, repoId)).all();
 }
 
-// ─── Git PTY Helper ─────────────────────────────────────────────────────────
+// ─── Safe Git process helper ──────────────────────────────────────────────────
 const GIT_ENV = {
   ...process.env,
   GIT_SSH_COMMAND: 'ssh -o BatchMode=yes',
@@ -82,50 +105,55 @@ const GIT_ENV = {
   https_proxy: '',
 };
 
-async function gitPty(
+async function gitExec(
   args: string[],
-  opts: { cwd?: string; timeout?: number } = {}
+  opts: { cwd?: string; timeout?: number } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const gitCmd = 'git ' + args.join(' ');
-  const exitCodeFile = `/tmp/git-exit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const wrappedCmd = `${gitCmd}; echo "GIT_EXIT_CODE=$?" >> "${exitCodeFile}"`;
-  const scriptArgs = ['-q', '-c', wrappedCmd, '/dev/null'];
-
   return new Promise((resolve) => {
-    const child = spawn('script', scriptArgs, {
+    // Never invoke a shell here. Repository URL, branch and local path remain
+    // distinct argv entries, so shell metacharacters cannot become commands.
+    const child = spawn('git', args, {
       env: GIT_ENV,
       cwd: opts.cwd || undefined,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
     });
+
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-    child.stdin.end();
+    let settled = false;
+    const maxOutput = 2 * 1024 * 1024;
+
+    const append = (current: string, chunk: Buffer) => {
+      if (current.length >= maxOutput) return current;
+      return (current + chunk.toString()).slice(0, maxOutput);
+    };
+
+    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+
+    const finish = (exitCode: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ stdout, stderr, exitCode });
+    };
 
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
-      setTimeout(() => { try { child.kill('SIGKILL'); } catch (_e) {} }, 3000);
+      setTimeout(() => {
+        if (!settled) child.kill('SIGKILL');
+      }, 3_000).unref();
     }, opts.timeout || 120_000);
+    timer.unref();
 
-    child.on('close', () => {
-      clearTimeout(timer);
-      let exitCode = 128;
-      try {
-        if (fs.existsSync(exitCodeFile)) {
-          const content = fs.readFileSync(exitCodeFile, 'utf8');
-          const match = content.match(/GIT_EXIT_CODE=(\d+)/);
-          if (match) exitCode = parseInt(match[1], 10);
-          fs.unlinkSync(exitCodeFile);
-        }
-      } catch (_e) {}
-      resolve({ stdout, stderr, exitCode });
+    child.on('close', (code, signal) => {
+      if (signal && !stderr) stderr = `git terminated by ${signal}`;
+      finish(typeof code === 'number' ? code : 128);
     });
-
-    child.on('error', () => {
-      clearTimeout(timer);
-      try { if (fs.existsSync(exitCodeFile)) fs.unlinkSync(exitCodeFile); } catch (_e) {}
-      resolve({ stdout, stderr, exitCode: 128 });
+    child.on('error', (error) => {
+      stderr = error.message;
+      finish(128);
     });
   });
 }
@@ -135,56 +163,63 @@ async function gitCloneOrPull(
   url: string,
   branch: string,
   localPath: string,
-  isNew: boolean
+  isNew: boolean,
 ): Promise<{ success: boolean; message: string }> {
+  if (!validateRepoUrl(url) || !validateBranch(branch) || !validateLocalPath(localPath)) {
+    return { success: false, message: 'Invalid repository configuration' };
+  }
+
   const gitUrl = toSshUrl(url);
   try {
     if (isNew) {
       const parentDir = path.dirname(localPath);
-      if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true });
-      }
-      const result = await gitPty(
+      if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
+
+      const result = await gitExec(
         ['clone', '--branch', branch, '--depth', '1', gitUrl, localPath],
-        { timeout: 300_000 }
+        { timeout: 300_000 },
       );
       if (result.exitCode !== 0) {
         return { success: false, message: result.stderr || result.stdout || 'Clone failed' };
       }
-      const files = fs.readdirSync(localPath).filter(f => f !== '.git');
+      const files = fs.readdirSync(localPath).filter((file) => file !== '.git');
       if (files.length === 0) {
         return { success: false, message: 'Clone completed but working tree is empty' };
       }
     } else {
       try {
-        const files = fs.readdirSync(localPath).filter(f => f !== '.git');
+        const files = fs.readdirSync(localPath).filter((file) => file !== '.git');
         if (files.length === 0) {
           fs.rmSync(localPath, { recursive: true, force: true });
           const parentDir = path.dirname(localPath);
-          if (!fs.existsSync(parentDir)) {
-            fs.mkdirSync(parentDir, { recursive: true });
-          }
-          const result = await gitPty(
+          if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
+          const result = await gitExec(
             ['clone', '--branch', branch, '--depth', '1', gitUrl, localPath],
-            { timeout: 300_000 }
+            { timeout: 300_000 },
           );
           if (result.exitCode !== 0) {
             return { success: false, message: result.stderr || result.stdout || 'Clone failed' };
           }
         } else {
-          await gitPty(['stash', '--include-untracked'], { cwd: localPath, timeout: 30_000 }).catch(() => {});
-          const result = await gitPty(['pull', 'origin', branch], { cwd: localPath, timeout: 60_000 });
-          await gitPty(['stash', 'drop'], { cwd: localPath, timeout: 10_000 }).catch(() => {});
+          await gitExec(['stash', 'push', '--include-untracked', '--message', 'jannserver-auto-sync'], {
+            cwd: localPath,
+            timeout: 30_000,
+          }).catch(() => undefined);
+          const result = await gitExec(['pull', '--ff-only', 'origin', branch], {
+            cwd: localPath,
+            timeout: 60_000,
+          });
           if (result.exitCode !== 0) {
             return { success: false, message: result.stderr || result.stdout || 'Pull failed' };
           }
         }
-      } catch (e: any) {
-        return { success: false, message: e.message };
+      } catch (error: unknown) {
+        return { success: false, message: error instanceof Error ? error.message : String(error) };
       }
     }
-  } catch (err: any) {
-    return { success: false, message: (err.message || String(err)).slice(0, 200) };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, message: message.slice(0, 200) };
   }
   return { success: true, message: '' };
 }
@@ -193,10 +228,7 @@ async function gitCloneOrPull(
 const SKIP_DIRS = new Set([
   '.git', '.venv', '.deps', 'node_modules', '__pycache__',
   '.next', '.cache', 'dist', 'build', 'target', 'vendor', '.svn',
-  '.tox', '.eggs', '*.egg-info',
-  // also skip bare 'venv' directories (common in Python projects)
-  'venv', '.venv', 'ENV', 'env',
-  // skip Python package caches and site-packages
+  '.tox', '.eggs', '*.egg-info', 'venv', 'ENV', 'env',
   'site-packages', 'site_packages',
 ]);
 
@@ -205,13 +237,14 @@ function scanMarkdownFiles(dir: string, files: string[] = []): string[] {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch { return files; }
+  } catch {
+    return files;
+  }
+
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) {
-        scanMarkdownFiles(full, files);
-      }
+      if (!SKIP_DIRS.has(entry.name)) scanMarkdownFiles(full, files);
     } else if (entry.name.endsWith('.md') || entry.name.endsWith('.MD')) {
       files.push(full);
     }
@@ -224,29 +257,24 @@ function computeHash(content: string): string {
 }
 
 function extractTitle(content: string, relPath: string): string {
-  // Priority 1: first Markdown H1 (# title)
   const h1Match = content.match(/^#\s+(.+)/m);
   if (h1Match) return h1Match[1].trim();
 
-  // Priority 2: first H2 / H3 as fallback
   const h2Match = content.match(/^#{2,3}\s+(.+)/m);
   if (h2Match) return h2Match[1].trim();
 
-  // Priority 3: frontmatter title field (handles multi-line YAML frontmatter)
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
   if (fmMatch) {
-    const fmBody = fmMatch[1];
-    const titleLine = fmBody.split('\n').find(l => l.trimStart().startsWith('title:'));
+    const titleLine = fmMatch[1].split('\n').find((line) => line.trimStart().startsWith('title:'));
     if (titleLine) {
-      const tv = titleLine.split('title:')[1].trim().replace(/^["']|["']$/g, '');
-      if (tv) return tv.trim();
+      const title = titleLine.split('title:')[1].trim().replace(/^["']|["']$/g, '');
+      if (title) return title.trim();
     }
   }
 
-  // Priority 4: derive from filename (strip extension, split on separators)
   const filename = relPath ? relPath.split('/').pop() || '' : '';
-  const basename = filename.replace(/\.[^.]+$/, ''); // strip extension
-  return basename
+  return filename
+    .replace(/\.[^.]+$/, '')
     .replace(/[-_.]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim() || '无标题';
@@ -263,14 +291,13 @@ function upsertRepoDocument(
   title: string,
   relPath: string,
   content: string,
-  hash: string
+  hash: string,
 ) {
   const existing = db.select().from(repoDocuments)
-    .where(eq(docT.repoId, repoId))
-    .all()
-    .filter(d => d.filePath === filePath);
+    .where(and(eq(docT.repoId, repoId), eq(docT.filePath, filePath)))
+    .get();
 
-  if (existing.length > 0) {
+  if (existing) {
     db.update(repoDocuments)
       .set({
         title,
@@ -279,7 +306,7 @@ function upsertRepoDocument(
         content,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(docT.id, existing[0].id))
+      .where(eq(docT.id, existing.id))
       .run();
   } else {
     db.insert(repoDocuments)
@@ -299,68 +326,72 @@ export async function syncRepo(
   repoId: number,
   localPath: string,
   url: string,
-  branch: string
+  branch: string,
 ) {
   const repo = getRepoById(repoId);
   if (!repo) return { success: false, message: 'Repo not found', added: 0, updated: 0, removed: 0 };
 
-  if (!validateRepoUrl(url) || !validateLocalPath(localPath)) {
-    return { success: false, message: 'Invalid URL or path', added: 0, updated: 0, removed: 0 };
+  if (!validateRepoUrl(url) || !validateBranch(branch) || !validateLocalPath(localPath)) {
+    return { success: false, message: 'Invalid URL, branch or path', added: 0, updated: 0, removed: 0 };
   }
 
-  const isNew = !fs.existsSync(localPath) ||
-    fs.readdirSync(localPath).filter(f => f !== '.git').length === 0;
+  const isNew = !fs.existsSync(localPath)
+    || fs.readdirSync(localPath).filter((file) => file !== '.git').length === 0;
 
   const gitResult = await gitCloneOrPull(url, branch, localPath, isNew);
   if (!gitResult.success) {
     return { success: false, message: gitResult.message, added: 0, updated: 0, removed: 0 };
   }
 
-  // Scan .md files (SKIP_DIRS enforced inside)
   const mdFiles = scanMarkdownFiles(localPath);
   const newHashes = new Map<string, string>();
-  for (const f of mdFiles) {
+  for (const filePath of mdFiles) {
     try {
-      const content = fs.readFileSync(f, 'utf8');
-      newHashes.set(f, computeHash(content));
-    } catch (_e) {}
+      const content = fs.readFileSync(filePath, 'utf8');
+      newHashes.set(filePath, computeHash(content));
+    } catch {
+      // A file may disappear while a repository is being updated; skip it.
+    }
   }
 
   const existing = getDocumentsByRepoId(repoId);
-  const existingPaths = new Map(existing.map(d => [d.filePath, d]));
-  let added = 0, updated = 0, removed = 0;
+  const existingPaths = new Map(existing.map((doc) => [doc.filePath, doc]));
+  let added = 0;
+  let updated = 0;
+  let removed = 0;
   const newPaths = new Set(newHashes.keys());
 
-  for (const entry of Array.from(newHashes.entries())) {
-    const filePath = entry[0];
-    const hash = entry[1];
+  for (const [filePath, hash] of newHashes.entries()) {
     const relPath = path.relative(localPath, filePath);
     let rawContent = '';
     let title = '';
     try {
       rawContent = fs.readFileSync(filePath, 'utf8');
       title = extractTitle(rawContent, relPath);
-    } catch (_e) {}
+    } catch {
+      continue;
+    }
+
     const cleanContent = stripFrontmatter(rawContent);
     const existingDoc = existingPaths.get(filePath);
-
     if (!existingDoc || existingDoc.contentHash !== hash) {
       upsertRepoDocument(repoId, filePath, title, relPath, cleanContent, hash);
-      if (existingDoc) updated++; else added++;
-      updateFts('github_md', `${repoId}:${relPath}`, title, cleanContent).catch(() => {});
-      // 写 embeddings 向量（语义检索用）
+      if (existingDoc) updated += 1;
+      else added += 1;
+
+      updateFts('github_md', `${repoId}:${relPath}`, title, cleanContent).catch(() => undefined);
       import('./embeddings')
         .then(({ updateEmbeddings }) =>
-          updateEmbeddings('repo_doc', `${repoId}:${relPath}`, title + '\n\n' + cleanContent)
+          updateEmbeddings('repo_doc', `${repoId}:${relPath}`, `${title}\n\n${cleanContent}`),
         )
-        .catch(err => console.error('[repos] updateEmbeddings failed:', relPath, err));
+        .catch((error) => console.error('[repos] updateEmbeddings failed:', relPath, error));
     }
   }
 
   for (const doc of existing) {
     if (!newPaths.has(doc.filePath)) {
       deleteRepoDocuments(repoId, doc.filePath);
-      removed++;
+      removed += 1;
     }
   }
 
@@ -372,6 +403,8 @@ export async function syncRepo(
   return {
     success: true,
     message: isNew ? 'Cloned successfully' : 'Pulled successfully',
-    added, updated, removed,
+    added,
+    updated,
+    removed,
   };
 }
