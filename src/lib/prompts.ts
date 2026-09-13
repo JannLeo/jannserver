@@ -97,19 +97,21 @@ export async function getPromptFiles(): Promise<PromptFile[]> {
     const entries = await fs.readdir(CLONE_PATH, { recursive: true, withFileTypes: true });
     const files = entries
       .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
-      .map((entry) => {
+      .flatMap((entry): PromptFile[] => {
         const fullPath = path.resolve(entry.parentPath || CLONE_PATH, entry.name);
-        if (!lexicallyInsideRoot(fullPath)) return null;
+        if (!lexicallyInsideRoot(fullPath)) return [];
+
         const relativePath = path.relative(CLONE_PATH, fullPath).split(path.sep).join('/');
+        if (!relativePath.startsWith('Anthropic')) return [];
+
         const { category, model } = categorizeFile(`/${relativePath}`);
-        return {
+        return [{
           name: entry.name.replace(/\.md$/i, ''),
           path: relativePath,
           category,
-          model,
-        };
+          ...(model ? { model } : {}),
+        }];
       })
-      .filter((file): file is PromptFile => Boolean(file && file.path.startsWith('Anthropic')))
       .slice(0, 5000);
     return files;
   } catch {
