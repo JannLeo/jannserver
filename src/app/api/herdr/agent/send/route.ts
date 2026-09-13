@@ -6,17 +6,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { herdrAgentSend, HerdrRpcError } from '@/lib/herdr-socket';
 import { herdrAuth } from '@/lib/herdr-auth';
 
+const MAX_AGENT_INPUT_BYTES = 256 * 1024;
+
 export async function POST(req: NextRequest) {
   const auth = await herdrAuth(req);
   if (!auth.ok) return auth.error;
+
   try {
     const body = await req.json();
-    if (!body.target) return NextResponse.json({ error: '缺少 target' }, { status: 400 });
-    if (!body.text) return NextResponse.json({ error: '缺少 text' }, { status: 400 });
-    const result = await herdrAgentSend({ target: body.target, text: body.text });
+    const target = typeof body?.target === 'string' ? body.target.trim() : '';
+    const text = typeof body?.text === 'string' ? body.text : '';
+
+    if (!target || target.length > 200) {
+      return NextResponse.json({ error: '无效的 target' }, { status: 400 });
+    }
+    if (!text) {
+      return NextResponse.json({ error: '缺少 text' }, { status: 400 });
+    }
+    if (Buffer.byteLength(text, 'utf8') > MAX_AGENT_INPUT_BYTES) {
+      return NextResponse.json({ error: 'text 过大' }, { status: 413 });
+    }
+
+    const result = await herdrAgentSend({ target, text });
     return NextResponse.json({ result });
-  } catch (e) {
-    const msg = e instanceof HerdrRpcError ? e.message : (e instanceof Error ? e.message : String(e));
-    return NextResponse.json({ error: msg }, { status: 502 });
+  } catch (error) {
+    const message = error instanceof HerdrRpcError
+      ? error.message
+      : (error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }
