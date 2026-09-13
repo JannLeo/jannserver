@@ -12,11 +12,11 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "check:gateway": "node --check gateway.js && node --check ws-proxy.js",
-    "check": "pnpm check:gateway && pnpm build",
+    "check": "pnpm check:gateway && pnpm typecheck && pnpm build",
     "init-admin": "tsx src/lib/init-admin.ts",
     "db:push": "drizzle-kit push",
-    "backup": "/usr/bin/node scripts/backup.mjs",
-    "restore": "/usr/bin/node scripts/restore.mjs"
+    "backup": "node scripts/backup.mjs",
+    "restore": "node scripts/restore.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.0",
