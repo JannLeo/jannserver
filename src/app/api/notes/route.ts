@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
   const conds: any[] = [];
   if (q) conds.push(like(notes.title, `%${q}%`));
   if (projectId) conds.push(eq(notes.projectId, projectId));
-  if (folderId) conds.push(eq(notes.folderId, folderId));
+  if (folderId !== null) conds.push(eq(notes.folderId, folderId));
 
   if (tagId) {
     const tagged = db
