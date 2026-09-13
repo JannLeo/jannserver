@@ -29,7 +29,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:gateway
       - name: Data script syntax check
-        run: pnpm check:data-scripts
+        run: |
+          pnpm check:data-scripts
+          sh -n scripts/backup.sh scripts/restore.sh
       - name: TypeScript check
         run: pnpm typecheck
       - name: TailSSH syntax check
@@ -126,7 +128,17 @@ jobs:
               echo "$health" | grep -q '"status":"ok"'
               echo "$health" | grep -q '"database":"ok"'
               test -f "$DATA_DIR/app.db"
-              echo "Container, SQLite runtime, and persistent data mount are healthy"
+
+              test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                http://127.0.0.1:33000/api/tasks)" = "401"
+              test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                http://127.0.0.1:33000/api/herdr/agent/status)" = "401"
+              test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                http://127.0.0.1:33000/api/tasks/delegations)" = "401"
+              test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                -H 'Host: evil.invalid' http://127.0.0.1:33000/api/health)" = "421"
+
+              echo "Container, SQLite runtime, auth boundaries, Host validation, and persistent mount are healthy"
               exit 0
             fi
             if [[ "$(docker inspect -f '{{.State.Running}}' jannserver-ci 2>/dev/null || true)" != "true" ]]; then
