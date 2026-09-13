@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import bcrypt from "bcryptjs";
 import { sqlite } from "./db/index";
+import { isAllowedHostname } from "./host-validation";
 
 export interface SessionData {
   userId?: number;
@@ -58,13 +59,6 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash);
 }
 
-function allowedHosts(): string[] {
-  return (process.env.ALLOWED_HOSTS || "localhost,127.0.0.1")
-    .split(",")
-    .map((host) => host.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 export function validateOrigin(headers: Headers): boolean {
   const source = headers.get("origin") || headers.get("referer");
   // Non-browser/CLI callers do not necessarily send Origin or Referer. They are
@@ -72,10 +66,7 @@ export function validateOrigin(headers: Headers): boolean {
   if (!source) return true;
 
   try {
-    const hostname = new URL(source).hostname.toLowerCase();
-    return allowedHosts().some(
-      (host) => hostname === host || hostname.endsWith(`.${host}`),
-    );
+    return isAllowedHostname(new URL(source).hostname);
   } catch {
     return false;
   }
