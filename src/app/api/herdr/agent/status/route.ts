@@ -4,12 +4,16 @@
 import { NextResponse } from 'next/server';
 import { herdrAgentList, HerdrRpcError } from '@/lib/herdr-socket';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const result = await herdrAgentList();
     return NextResponse.json({ result });
-  } catch (e) {
-    const msg = e instanceof HerdrRpcError ? e.message : (e instanceof Error ? e.message : String(e));
-    return NextResponse.json({ error: msg }, { status: 502 });
+  } catch (error) {
+    const message = error instanceof HerdrRpcError
+      ? error.message
+      : (error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }
