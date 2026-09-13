@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:gateway
+      - name: Production build
+        env:
+          SESSION_SECRET: ci-only-session-secret-0123456789abcdef0123456789abcdef
+          INIT_TOKEN: ci-only-init-token
+          DB_PATH: /tmp/jannserver-ci/app.db
+          ALLOWED_HOSTS: localhost,127.0.0.1
+        run: pnpm build
