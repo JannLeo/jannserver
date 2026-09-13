@@ -66,6 +66,14 @@ function parseCookies(header) {
   return cookies;
 }
 
+function withoutCookie(header, cookieName) {
+  return String(header || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part && part.slice(0, part.indexOf('=')).trim() !== cookieName)
+    .join('; ');
+}
+
 async function isWorkspaceAuthenticated(req) {
   const password = process.env.SESSION_SECRET?.trim() || '';
   if (password.length < 32) {
@@ -118,7 +126,7 @@ function pipeRequestBody(req, proxyReq) {
   req.on('error', (error) => proxyReq.destroy(error));
 }
 
-function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
+function proxyHttp(req, res, { port, path, rewriteCodingHtml = false, isolateWorkspaceCredentials = false }) {
   const requestHeaders = copyHeaders(req.headers);
 
   // Never trust client-supplied forwarding headers. This gateway is the trust
@@ -131,6 +139,14 @@ function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
   if (remoteAddress) {
     requestHeaders['x-forwarded-for'] = remoteAddress;
     requestHeaders['x-real-ip'] = remoteAddress;
+  }
+
+  if (isolateWorkspaceCredentials) {
+    const serviceCookies = withoutCookie(requestHeaders.cookie, SESSION_COOKIE_NAME);
+    if (serviceCookies) requestHeaders.cookie = serviceCookies;
+    else delete requestHeaders.cookie;
+    delete requestHeaders['x-herdr-key'];
+    delete requestHeaders['x-delegation-key'];
   }
 
   // The coding HTML shell is rewritten below. Ask upstream for identity encoding
@@ -302,6 +318,7 @@ const server = http.createServer(async (req, res) => {
     port: upstreamPort,
     path: upstreamPath,
     rewriteCodingHtml: isCoding,
+    isolateWorkspaceCredentials: isVibe || isCoding,
   });
 });
 
