@@ -14,12 +14,7 @@ const EXACT_PUBLIC_PATHS = new Set([
   '/shadcn_ui_ui',
 ]);
 
-// Machine-to-machine endpoints stay reachable without a workspace cookie, but
-// each route is responsible for validating its dedicated API key. Everything
-// else under /api requires the normal workspace session.
 const PUBLIC_PREFIXES = [
-  '/api/tasks/delegations/',
-  '/api/herdr/',
   '/_next/',
   '/icons/',
 ];
@@ -28,11 +23,7 @@ const DEV_SESSION_SECRET = 'development-only-session-secret-change-me-123456';
 
 function isPublicPath(pathname: string): boolean {
   if (EXACT_PUBLIC_PATHS.has(pathname)) return true;
-
-  return PUBLIC_PREFIXES.some((prefix) => {
-    const root = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
-    return pathname === root || pathname.startsWith(prefix);
-  });
+  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
 function sessionSecret(): string | null {
@@ -50,6 +41,38 @@ function serviceMisconfigured(pathname: string) {
   return new NextResponse('Server authentication is not configured', { status: 503 });
 }
 
+function isPathOrChild(pathname: string, root: string): boolean {
+  return pathname === root || pathname.startsWith(`${root}/`);
+}
+
+function hasMachineKey(req: NextRequest, headerName: string, envName: string): boolean {
+  const expected = process.env[envName]?.trim() || '';
+  const provided = req.headers.get(headerName)?.trim() || '';
+  return expected.length >= 16 && provided.length === expected.length && provided === expected;
+}
+
+function machineAuthResponse(req: NextRequest, pathname: string): NextResponse | null {
+  if (
+    isPathOrChild(pathname, '/api/herdr') &&
+    hasMachineKey(req, 'x-herdr-key', 'HERDR_API_KEY')
+  ) {
+    const response = NextResponse.next();
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return response;
+  }
+
+  if (
+    isPathOrChild(pathname, '/api/tasks/delegations') &&
+    hasMachineKey(req, 'x-delegation-key', 'DELEGATION_API_KEY')
+  ) {
+    const response = NextResponse.next();
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return response;
+  }
+
+  return null;
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -58,6 +81,11 @@ export async function middleware(req: NextRequest) {
     response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     return response;
   }
+
+  // Machine callers can access only their narrowly scoped endpoint families
+  // with dedicated keys. Browser callers continue through normal session auth.
+  const machineResponse = machineAuthResponse(req, pathname);
+  if (machineResponse) return machineResponse;
 
   if (pathname === '/') {
     return NextResponse.redirect(new URL('/login', req.url));
