@@ -8,12 +8,24 @@ const http = require('http');
 const { unsealData } = require('iron-session');
 const { WebSocket, WebSocketServer } = require('ws');
 
-const NEXT_PORT = parseInt(process.env.NEXT_PORT || '3002', 10);
+function boundedInt(raw, fallback, min, max) {
+  const value = Number.parseInt(raw || '', 10);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+const NEXT_PORT = boundedInt(process.env.NEXT_PORT, 3002, 1, 65535);
 const WS_PROXY = process.env.WS_PROXY || 'ws://127.0.0.1:3001';
-const GATEWAY_PORT = parseInt(process.env.GATEWAY_PORT || '3000', 10);
-const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT || '34567', 10);
-const PROXY_IDLE_TIMEOUT_MS = parseInt(process.env.PROXY_IDLE_TIMEOUT_MS || '300000', 10);
-const MAX_HTML_REWRITE_BYTES = parseInt(process.env.MAX_HTML_REWRITE_BYTES || String(8 * 1024 * 1024), 10);
+const GATEWAY_PORT = boundedInt(process.env.GATEWAY_PORT, 3000, 1, 65535);
+const OPENCODE_PORT = boundedInt(process.env.OPENCODE_PORT, 34567, 1, 65535);
+const PROXY_IDLE_TIMEOUT_MS = boundedInt(process.env.PROXY_IDLE_TIMEOUT_MS, 300000, 1000, 30 * 60 * 1000);
+const MAX_HTML_REWRITE_BYTES = boundedInt(
+  process.env.MAX_HTML_REWRITE_BYTES,
+  8 * 1024 * 1024,
+  64 * 1024,
+  64 * 1024 * 1024,
+);
+const MAX_WS_PAYLOAD = boundedInt(process.env.MAX_WS_PAYLOAD, 1024 * 1024, 1024, 16 * 1024 * 1024);
 const SESSION_COOKIE_NAME = 'workspace_session';
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -109,6 +121,10 @@ function pipeRequestBody(req, proxyReq) {
 function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
   const requestHeaders = copyHeaders(req.headers);
 
+  // The coding HTML shell is rewritten below. Ask upstream for identity encoding
+  // so string replacement never runs against gzip/br compressed bytes.
+  if (rewriteCodingHtml) requestHeaders['accept-encoding'] = 'identity';
+
   const proxyReq = http.request({
     hostname: '127.0.0.1',
     port,
@@ -118,44 +134,67 @@ function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
   }, (proxyRes) => {
     const statusCode = proxyRes.statusCode || 502;
     const contentType = String(proxyRes.headers['content-type'] || '');
-    const shouldRewriteHtml = rewriteCodingHtml && contentType.includes('text/html');
+    const contentEncoding = String(proxyRes.headers['content-encoding'] || '').toLowerCase();
+    const shouldRewriteHtml = rewriteCodingHtml
+      && contentType.includes('text/html')
+      && (!contentEncoding || contentEncoding === 'identity');
 
-    // The OpenCode HTML shell needs absolute paths rewritten. Everything else stays
-    // streaming so SSE/AI responses and large downloads are not buffered in memory.
+    // The OpenCode HTML shell needs absolute paths rewritten. Buffer only while
+    // it remains below the configured limit; if it grows larger, immediately
+    // switch to streaming passthrough so memory usage stays bounded.
     if (shouldRewriteHtml) {
       const chunks = [];
       let totalBytes = 0;
-      let exceededLimit = false;
+      let passthrough = false;
+
+      const startPassthrough = () => {
+        if (passthrough) return;
+        passthrough = true;
+        console.warn(`[proxy:coding] HTML rewrite skipped (> ${MAX_HTML_REWRITE_BYTES} bytes)`);
+        const headers = copyHeaders(proxyRes.headers, { dropContentLength: true });
+        res.writeHead(statusCode, headers);
+        for (const buffered of chunks) res.write(buffered);
+        chunks.length = 0;
+      };
 
       proxyRes.on('data', (chunk) => {
+        if (res.destroyed || res.writableEnded) return;
+        if (passthrough) {
+          res.write(chunk);
+          return;
+        }
+
         totalBytes += chunk.length;
-        if (totalBytes > MAX_HTML_REWRITE_BYTES) exceededLimit = true;
+        if (totalBytes > MAX_HTML_REWRITE_BYTES) {
+          startPassthrough();
+          res.write(chunk);
+          return;
+        }
         chunks.push(chunk);
       });
 
       proxyRes.on('end', () => {
         if (res.destroyed || res.writableEnded) return;
-
-        const raw = Buffer.concat(chunks);
-        if (exceededLimit) {
-          console.warn(`[proxy:coding] HTML rewrite skipped (${raw.length} bytes > ${MAX_HTML_REWRITE_BYTES})`);
-          const headers = copyHeaders(proxyRes.headers, { dropContentLength: true });
-          headers['content-length'] = raw.length;
-          res.writeHead(statusCode, headers);
-          res.end(raw);
+        if (passthrough) {
+          res.end();
           return;
         }
 
+        const raw = Buffer.concat(chunks, totalBytes);
         const html = raw.toString('utf8')
           .replace(/src="\//g, 'src="/coding-proxy/')
           .replace(/href="\//g, 'href="/coding-proxy/');
         const body = Buffer.from(html, 'utf8');
         const headers = copyHeaders(proxyRes.headers, { dropContentLength: true });
         headers['content-length'] = body.length;
+        headers['cache-control'] = 'no-cache, no-store, must-revalidate';
         res.writeHead(statusCode, headers);
         res.end(body);
       });
 
+      proxyRes.on('aborted', () => {
+        if (!res.writableEnded) res.destroy(new Error('upstream response aborted'));
+      });
       proxyRes.on('error', (error) => sendProxyError(res, error, 'proxy:coding-response'));
       return;
     }
@@ -168,6 +207,9 @@ function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
 
     res.writeHead(statusCode, headers);
     proxyRes.pipe(res);
+    proxyRes.on('aborted', () => {
+      if (!res.writableEnded) res.destroy(new Error('upstream response aborted'));
+    });
     proxyRes.on('error', (error) => sendProxyError(res, error, 'proxy:response'));
   });
 
@@ -184,7 +226,7 @@ function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
 }
 
 // ── TailSSH WS server ───────────────────────────────────────────────────────
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
 wss.on('connection', (clientWs, req) => {
   let hostId = '';
   try {
@@ -200,7 +242,10 @@ wss.on('connection', (clientWs, req) => {
     return;
   }
 
-  const backend = new WebSocket(`${WS_PROXY}/ws/${encodeURIComponent(hostId)}`);
+  const backendBase = WS_PROXY.replace(/\/$/, '');
+  const backend = new WebSocket(`${backendBase}/ws/${encodeURIComponent(hostId)}`, {
+    maxPayload: MAX_WS_PAYLOAD,
+  });
   clientWs.on('message', (data, isBinary) => {
     if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
   });
@@ -249,10 +294,12 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ── OpenCode WS server ──────────────────────────────────────────────────────
-const codingWss = new WebSocketServer({ noServer: true });
+const codingWss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
 codingWss.on('connection', (clientWs, req) => {
   const backendPath = (req.url || '').replace(/^\/coding-proxy/, '') || '/';
-  const backend = new WebSocket('ws://127.0.0.1:' + OPENCODE_PORT + backendPath);
+  const backend = new WebSocket(`ws://127.0.0.1:${OPENCODE_PORT}${backendPath}`, {
+    maxPayload: MAX_WS_PAYLOAD,
+  });
   clientWs.on('message', (data, isBinary) => {
     if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
   });
