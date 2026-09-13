@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -28,6 +28,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:gateway
+      - name: TypeScript check
+        run: pnpm typecheck
+      - name: TailSSH syntax check
+        run: python3 -m py_compile tailssh/tailsshd.py
       - name: Production build
         env:
           SESSION_SECRET: ci-only-session-secret-0123456789abcdef0123456789abcdef
@@ -35,3 +39,32 @@ jobs:
           DB_PATH: /tmp/jannserver-ci/app.db
           ALLOWED_HOSTS: localhost,127.0.0.1
         run: pnpm build
+      - name: Build production Docker image
+        run: docker build --tag jannserver-ci .
+      - name: Smoke test production container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name jannserver-ci \
+            -p 33000:3000 \
+            -e SESSION_SECRET=ci-only-session-secret-0123456789abcdef0123456789abcdef \
+            -e INIT_TOKEN=ci-only-init-token \
+            -e DB_PATH=/tmp/jannserver.db \
+            -e ALLOWED_HOSTS=localhost,127.0.0.1 \
+            jannserver-ci
+          trap 'docker logs jannserver-ci || true; docker rm -f jannserver-ci >/dev/null 2>&1 || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:33000/api/health >/dev/null; then
+              echo "Container health endpoint is ready"
+              exit 0
+            fi
+            if [[ "$(docker inspect -f '{{.State.Running}}' jannserver-ci 2>/dev/null || true)" != "true" ]]; then
+              echo "Container exited before becoming healthy" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "Container did not become healthy" >&2
+          exit 1
