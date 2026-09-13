@@ -38,13 +38,15 @@ openssl rand -hex 32   # DELEGATION_API_KEY（如需要机器调用）
 
 生产环境不要使用仓库示例值。`SESSION_SECRET` 少于 32 个字符时，生产鉴权会拒绝请求。
 
+`ALLOWED_HOSTS` 默认是**精确匹配**。例如 `example.com` 不会自动信任 `foo.example.com`；只有确实需要所有子域时才写 `*.example.com`。通过服务器 IP、Tailscale 主机名或正式域名访问时，必须把实际 hostname/IP 加进去，否则生产 middleware 会返回 `421`。
+
 默认生产 Cookie 带 `Secure`，因此正式部署应通过 HTTPS 访问。如果你明确只在可信的纯 HTTP/Tailscale 网络中使用，才设置：
 
 ```env
 ALLOW_HTTP_COOKIES=true
 ```
 
-如果通过域名、服务器 IP 或 Tailscale 主机名访问，还要把对应 hostname 加入 `ALLOWED_HOSTS`，否则浏览器的写请求会被 CSRF 主机校验拒绝。
+直接暴露 Next/Docker 时请保持 `TRUST_PROXY_HEADERS=false`。只有在你确认上游反向代理会覆盖而不是透传客户端 `X-Forwarded-For` / `X-Real-IP` 时才应该开启；仓库自带 PM2 Gateway 已满足这个条件，并会仅在 loopback Next 后端上自动启用。
 
 ### 2. 启动
 
@@ -76,6 +78,8 @@ curl -X POST http://127.0.0.1:3000/api/init \
   -H "X-Init-Token: $INIT_TOKEN" \
   -d '{"username":"admin","password":"YourPassword123!"}'
 ```
+
+首次初始化的“检查是否已有用户 + 创建首用户”在 SQLite IMMEDIATE 事务内完成，并发请求也只能成功一个。
 
 然后通过你配置好的 HTTPS 地址登录；仅在可信纯 HTTP/Tailscale 场景并设置 `ALLOW_HTTP_COOKIES=true` 时使用 `http://.../login`。
 
@@ -111,8 +115,9 @@ data/
 |---|---|
 | `SESSION_SECRET` | iron-session Cookie 加密，生产必须 >= 32 字符 |
 | `INIT_TOKEN` | `/api/init` 首次初始化保护 |
-| `ALLOWED_HOSTS` | 浏览器写请求的 Origin/Referer 主机白名单 |
+| `ALLOWED_HOSTS` | 生产 Host + 浏览器 Origin/Referer 白名单；子域需显式 `*.` |
 | `ALLOW_HTTP_COOKIES` | 仅在可信纯 HTTP/Tailscale 环境明确设为 `true` |
+| `TRUST_PROXY_HEADERS` | 是否信任转发客户端 IP 头；直连/Docker 默认 `false` |
 | `HERDR_API_KEY` | Herdr 机器调用，使用 `x-herdr-key` |
 | `DELEGATION_API_KEY` | 任务委派机器调用，使用 `x-delegation-key` |
 | `RATE_LIMIT_WINDOW_MS` | 登录失败限流窗口 |
@@ -138,7 +143,7 @@ TailSSH 默认只监听 `127.0.0.1:9222`，应通过 jannserver 已鉴权的代�
 
 ## PM2 / Gateway（可选）
 
-`ecosystem.config.js` 默认使用仓库当前目录和当前 Node 可执行文件，不再依赖固定用户名或固定 NVM 路径。
+`ecosystem.config.js` 默认使用仓库当前目录和当前 Node 可执行文件，不再依赖固定用户名或固定 NVM 路径。原始 Next 服务固定绑定 `127.0.0.1:NEXT_PORT`，Gateway 才是公开入口；Gateway 会覆盖转发 IP 头，并在转发 OpenCode/Vibe 时移除工作台 session Cookie 与机器密钥。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -149,8 +154,8 @@ pm2 start ecosystem.config.js
 Gateway 默认：
 
 - 外部入口：`GATEWAY_PORT=3000`
-- Next：`NEXT_PORT=3002`
-- WebSocket proxy：`PROXY_PORT=3001`
+- 内部 Next：`127.0.0.1:NEXT_PORT=3002`
+- WebSocket proxy：`127.0.0.1:PROXY_PORT=3001`
 - OpenCode：`OPENCODE_PORT=34567`
 
 按需在 `.env` 覆盖。
@@ -178,8 +183,10 @@ Pull Request 和 `main` push 会运行 GitHub Actions，验证：
 
 - `pnpm install --frozen-lockfile`
 - Gateway / WebSocket proxy JavaScript 语法
+- 备份/恢复脚本语法
 - TypeScript 严格检查
 - TailSSH Python 语法
+- 完整 SQLite + 文件备份、`--verify` 与恢复 round-trip
 - Next.js production build
 - Docker image build
 - root-owned `/data` bind mount 下启动容器
@@ -192,7 +199,9 @@ pnpm backup
 pnpm restore -- data/backups/<backup-file>.tar.gz
 ```
 
-也保留了 `scripts/backup.sh` / `scripts/restore.sh` 兼容脚本；执行恢复前先备份当前 `data/`。
+备份脚本会对 `app.db`、`sessions.db` 等 data 根目录 SQLite 文件使用 online backup API 生成一致快照，不直接打包 live WAL/SHM；恢复会先校验归档路径、拒绝符号链接，并对 SQLite 执行 `quick_check`。
+
+也保留了 `scripts/backup.sh` / `scripts/restore.sh` 兼容包装脚本，它们现在统一调用同一套 `.mjs` 实现，不再维护另一套恢复逻辑。实际恢复前仍建议先额外保留当前 `data/` 副本并停止应用写入。
 
 ## 技术栈
 
