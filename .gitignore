@@ -6,6 +6,9 @@ data/
 !.gitkeep
 tools/MediaCrawler
 
+# Runtime repository clones live under data/repos. Ignore stale/manual clones at root.
+/repos/
+
 # Local runtime configuration with host/IP details
 config.json
 
