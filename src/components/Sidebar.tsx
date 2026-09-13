@@ -58,8 +58,9 @@ const SUB_MENUS: Record<string, { emoji: string; label: string; tooltip: string;
     children: [
       ['/self-study', '📊', '学习仪表盘', '学习仪表盘'],
       ['/self-study/courses', '📚', '课程', '全部课程'],
-      ['/self-study/tutor', '🤖', 'AI 导师', 'AI 学习问答'],
-      ['/self-study/flashcards', '🃏', '闪卡', '间隔重复记忆'],
+      ['/self-study/english', '🇬🇧', '英语自学', '背单词·刷题·错题本'],
+            ['/self-study/tutor', '🤖', 'AI 导师', 'AI 学习问答'],
+            ['/self-study/flashcards', '🃏', '闪卡', '间隔重复记忆'],
     ],
   },
 };
@@ -71,6 +72,8 @@ const hiddenHrefs = new Set(Object.values(SUB_MENUS).flatMap((m) => m.children.m
 const DASHBOARD_ITEM: [string, string, string, string] = ['/dashboard', '🏠', '工作台', '工作台'];
 
 const navItems: [string, string, string, string][] = [
+  ['/tailssh', '🔌', 'Terminal', 'SSH 终端'],
+  ['/coding', '🛠', '编程助手', 'OpenCode 浏览器内编码'],
   ['/daily', '📅', 'Daily', '每日记录'],
   ['/knowledge-ask', '📚', '知识问答', '文档·代码·项目·Wiki·AI问答'],
   ['/usage', '💳', '用量', 'AI 使用情况'],
@@ -79,14 +82,31 @@ const navItems: [string, string, string, string][] = [
   ['/novel', '✍️', '小说', 'AI 小说创作'],
   ['/news', '📰', '新闻', '全球新闻聚合'],
   ['/trending', '🔥', '趋势', 'GitHub Trending'],
-  ['/herdr', '🤖', 'Herdr Agent', 'Agent 控制台'],
-  ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
+  ];
+
+  // ── AI 整合仓库（由 integration-agent.js 动态写入） ──
+  // 此数组会被 addToSidebar() 函数追加条目
+  const integratedNavItems: [string, string, string, string][] = [
+    ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
+    ['/voice', '🎤', '语音助手', 'AI 语音对话'],
+    ['/herdr', '🔗', 'herdr', '终端 AI Agent 工作流'],
+    ['/ZhuLinsen_daily_stock_analysis', '📊', '股票分析', 'AI 股票智能分析'],
+    ['/shadcn_ui_ui', '🎨', 'shadcn UI', 'UI 组件展示'],
+    ['/asgeirtj_system_prompts_leaks', '📦', 'Prompt 安全', 'System Prompt 泄露检测'],
+    ['/bradautomates_claude_video', '📦', 'claude-video', 'bradautomates/claude-video 整合'],
+  ['/MadsLorentzen_ai_job_search', '📦', 'ai-job-search', 'MadsLorentzen/ai-job-search 整合'],
+  ['/tt_a1i_archify', '📦', 'archify', 'tt-a1i/archify 整合'],
+  ['/wonderwhy_er_DesktopCommanderMCP', '📦', 'DesktopCommanderMCP', 'wonderwhy-er/DesktopCommanderMCP 整合'],
+  ['/HKUDS_Vibe_Trading', '📦', 'Vibe-Trading', 'HKUDS/Vibe-Trading 整合'],
+  ['/diegosouzapw_OmniRoute', '📦', 'OmniRoute', 'diegosouzapw/OmniRoute 整合'],
+  ['/oven_sh_bun', '📦', 'bun', 'oven-sh/bun 整合'],
 ];
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
-  const [openSubMenu, setOpenSubMenu] = useState<string | null>('study');
+    const [openSubMenu, setOpenSubMenu] = useState<string | null>(null);
+    const [openIntegrations, setOpenIntegrations] = useState(false);
 
   // Close on route change (mobile)
   useEffect(() => {
@@ -201,7 +221,48 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
         {Object.entries(SUB_MENUS).map(([key, config]) => renderSubMenu(key, config))}
 
         {/* Regular nav items */}
-        {navItems.map((item) => renderNavLink(item))}
+                {navItems.map((item) => renderNavLink(item))}
+
+                {/* AI 整合仓库（可折叠分组） */}
+                {integratedNavItems.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => setOpenIntegrations(!openIntegrations)}
+                      className={
+                        'group relative flex w-full items-center overflow-hidden rounded-2xl transition-all duration-200 ' +
+                        (expanded ? 'gap-3 px-3 py-2' : 'justify-center px-0 py-2') + ' ' +
+                        (isSubMenuActive(integratedNavItems)
+                          ? 'bg-amber-100 text-[#173f3c] shadow-[0_14px_30px_rgba(0,0,0,0.16)]'
+                          : 'text-teal-50/72 hover:bg-white/[0.08] hover:text-white')
+                      }
+                    >
+                      {isSubMenuActive(integratedNavItems) && <span className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-teal-500" />}
+                      <span className={'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl transition ' + (isSubMenuActive(integratedNavItems) ? 'bg-white/55' : 'bg-white/[0.06] group-hover:bg-white/[0.10]')}>
+                        <span className="text-xs">🧩</span>
+                      </span>
+                      {expanded && (
+                        <>
+                          <span className="flex-1 truncate text-left text-xs font-bold uppercase tracking-widest text-teal-100/60">
+                            整合仓库
+                          </span>
+                          <svg
+                            width="11" height="11" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" strokeWidth="2.5"
+                            className={`flex-shrink-0 transition-transform ${openIntegrations ? 'rotate-180' : ''}`}
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </>
+                      )}
+                    </button>
+
+                    {expanded && openIntegrations && (
+                      <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-white/15 pl-3">
+                        {integratedNavItems.map((item) => renderNavLink(item, 'py-2'))}
+                      </div>
+                    )}
+                  </div>
+                )}
       </nav>
 
       {/* Collapse button */}

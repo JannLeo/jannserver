@@ -136,6 +136,21 @@ export const repoDocuments = sqliteTable("repo_documents", {
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
+// Weread Shelf minimal definition – satisfies weread API imports
+export const wereadShelf = sqliteTable("weread_shelf", {
+  bookId: text("book_id").notNull(),
+  title: text("title").notNull(),
+  author: text("author").notNull().default(""),
+  coverUrl: text("cover_url").default(""),
+  progress: real("progress").default(0),
+  readTime: integer("read_time").default(0),
+  currentChapter: integer("current_chapter").default(0),
+  totalChapters: integer("total_chapters").default(0),
+  finished: integer("finished", { mode: "boolean" }).default(false),
+  updateTime: text("update_time").default(""),
+  syncedAt: text("synced_at").default(""),
+});
+
 // ─── LLM-Wiki 知识层 ───────────────────────────────────────────────────────
 export const wikiSpaces = sqliteTable("wiki_spaces", {
   id: integer("id").primaryKey({ autoIncrement: true }),

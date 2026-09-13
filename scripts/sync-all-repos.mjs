@@ -14,8 +14,9 @@ const REPOS_BASE_DIR = '/home/sz/workspace/data/repos';
 const DB_PATH = '/home/sz/workspace/data/app.db';
 const GITHUB_USER = 'JannLeo';
 
-// 已有的不重复同步
-const ALREADY = new Set(['summary-for-work', 'worldquant', 'teach']);
+// 已有的不重复同步（只跳过明确不需要自动同步的仓库）
+// worldquant / aitoearn 从 ALREADY 移除：它们需要被克隆到本地
+const ALREADY = new Set(['summary-for-work', 'teach']);
 
 function getDb() {
   const db = new Database(DB_PATH);
@@ -184,15 +185,28 @@ async function main() {
     const branch = r.default_branch || 'main';
     const httpsUrl = `https://github.com/${GITHUB_USER}/${r.name}.git`;
 
+    // If clone fails with given branch, try other common branch names
+    async function tryClone(repoName, branchToTry, url, dest) {
+      const result = execGit('clone', '--branch', branchToTry, '--depth', '1', url, dest);
+      return result;
+    }
+
     if (!fs.existsSync(localPath) || !fs.readdirSync(localPath).filter(f => f !== '.git').length) {
       // Clone via HTTPS (public repo, no auth)
       console.log(`[CLONE] ${r.name} (${branch})...`);
-      const result = execGit('clone', '--branch', branch, '--depth', '1', httpsUrl, localPath);
-      if (!result.ok) {
-        console.log(`[ERROR] Clone failed: ${result.out.slice(0, 200)}`);
-        continue;
+      let cloned = false;
+      const branchesToTry = [branch, 'main', 'master', 'develop'].filter((v, i, a) => a.indexOf(v) === i);
+      for (const b of branchesToTry) {
+        const result = await tryClone(r.name, b, httpsUrl, localPath);
+        if (result.ok) {
+          console.log(`  ✓ Cloned (branch: ${b})`);
+          cloned = true;
+          break;
+        }
       }
-      console.log(`  ✓ Cloned`);
+      if (!cloned) {
+        console.log(`  ⚠ Clone failed for all branches, will retry on next sync`);
+      }
     } else {
       // Pull
       console.log(`[PULL] ${r.name}...`);

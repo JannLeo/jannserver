@@ -204,6 +204,10 @@ export function buildSummarySystemPrompt(): string {
 
 **输出格式：**
 
+## AI 总结
+
+[在此写一段本工作日的整体总结，2-5句话，突出重点进展和任何需要注意的事项。不要使用标题符号，只用纯文本。]
+
 # YYYY-MM-DD 工作日报
 
 ## 今日完成

@@ -18,6 +18,7 @@ const BRAIN_API_URL = (
 // Node.js fetch 不自动管 cookie，手动捕获 Set-Cookie 并回传
 let cookieStr = '';
 let sessionExpiry = 0; // epoch ms
+let syncInProgress = false; // 防止并发 sync
 
 export function isBrainConfigured(): boolean {
   return !!(process.env.BRAIN_CREDENTIAL_EMAIL && process.env.BRAIN_CREDENTIAL_PASSWORD);
@@ -78,6 +79,7 @@ export async function loginBrain(): Promise<{
       cookieStr = parseSetCookie(res.headers);
       const expiry = typeof data?.token?.expiry === 'number' ? data.token.expiry * 1000 : 3600 * 1000;
       sessionExpiry = Date.now() + expiry;
+      console.log('[brain] login ok, user:', data?.user);
       return {
         ok: true,
         user: data?.user ?? null,
@@ -95,9 +97,11 @@ export async function loginBrain(): Promise<{
       }
       return { ok: false, error: '认证失败：邮箱或密码错误' };
     }
+    console.log('[brain] login failed, status:', res.status, await res.text().catch(()=>''));
     return { ok: false, error: `登录失败: HTTP ${res.status}` };
   } catch (err: any) {
     clearTimeout(timeout);
+    console.log('[brain] login exception:', err.name, err.message);
     if (err.name === 'AbortError') return { ok: false, error: '登录超时（30s）' };
     return { ok: false, error: `登录异常: ${err.message}` };
   }
@@ -131,7 +135,8 @@ async function ensureSession(): Promise<{
 }
 
 /**
- * BRAIN GET 请求，带 cookie + Retry-After 处理。最多重试 3 次。
+ * BRAIN GET 请求，带 cookie + 重试处理。
+ * 对 429/500-503/timeout/网络错误都会重试，最多 3 次。
  */
 async function brainGet(path: string): Promise<Response> {
   const url = path.startsWith('http') ? path : `${BRAIN_API_URL}${path}`;
@@ -145,8 +150,9 @@ async function brainGet(path: string): Promise<Response> {
       });
       clearTimeout(timeout);
 
-      if (res.status === 429) {
+      if (res.status === 429 || (res.status >= 500 && res.status <= 503)) {
         const retryAfter = parseInt(res.headers.get('retry-after') || '5', 10);
+        console.log(`[brainGet] ${path} → ${res.status} retry-after=${retryAfter}s (attempt ${attempt + 1}/3)`);
         await sleep(Math.min(retryAfter * 1000, 30000));
         continue;
       }
@@ -167,28 +173,74 @@ async function brainGet(path: string): Promise<Response> {
 
 /**
  * 分页拉取 alphas。
+ * 策略：先用 order=-dateCreated&limit=50；遇到超时或 500 则降级到 limit=20 无 order。
  */
 async function fetchAlphasByStatus(
   status: 'UNSUBMITTED' | 'ACTIVE'
 ): Promise<any[]> {
   const all: any[] = [];
   let offset = 0;
-  const order = status === 'UNSUBMITTED' ? '-is.sharpe' : '-dateSubmitted';
-  const extra = status === 'UNSUBMITTED' ? '&hidden=false&type!=SUPER' : '';
+  const order = status === 'UNSUBMITTED' ? '-dateCreated' : '-dateSubmitted';
+  const extra = status === 'UNSUBMITTED' ? '&hidden=false' : '';
+  let useOrder = true;
+  let batchSize = 50;
+  const MAX_ESTIMATE = 10000;
+  const LOG_INTERVAL = 10;
 
   while (true) {
-    const path = `/users/self/alphas?limit=100&offset=${offset}&status=${status}&order=${order}${extra}`;
-    const res = await brainGet(path);
-    if (!res.ok) {
-      throw new Error(
-        `fetchAlphas ${status} HTTP ${res.status}: ${await res.text().catch(() => '')}`
-      );
+    const orderParam = useOrder ? `&order=${order}` : '';
+    const path = `/users/self/alphas?limit=${batchSize}&offset=${offset}&status=${status}${orderParam}${extra}`;
+    console.log(`[brain] fetchAlphas ${status} offset=${offset} order=${useOrder} limit=${batchSize}`);
+
+    try {
+      const res = await brainGet(path);
+      console.log(`[brain] fetchAlphas ${status} offset=${offset} → ${res.status} ${res.ok}`);
+
+      if (res.ok) {
+        const data = await res.json();
+        const batch: any[] = data?.results || [];
+        all.push(...batch);
+
+        const totalEstimate = data?.count || all.length + offset;
+        if (offset % (LOG_INTERVAL * batchSize) === 0 && offset > 0) {
+          console.log(`[brain] fetched ${all.length}/${totalEstimate} ${status}`);
+        }
+
+        if (batch.length < batchSize) {
+          console.log(`[brain] fetchAlphas ${status} done, total=${all.length}`);
+          break;
+        }
+        offset += batch.length;
+      } else if (res.status === 500 || res.status === 503) {
+        // 服务端错误：降级策略
+        if (useOrder) {
+          console.log(`[brain] 500, 降级到无 order, limit=20`);
+          useOrder = false;
+          batchSize = 20;
+          offset = 0; // 重新开始
+          all.length = 0;
+          continue;
+        }
+        throw new Error(`fetchAlphas ${status} HTTP ${res.status} (after fallback)`);
+      } else {
+        throw new Error(`fetchAlphas ${status} HTTP ${res.status}: ${await res.text().catch(() => '')}`);
+      }
+    } catch (err: any) {
+      if (err.message.includes('请求超时')) {
+        // 超时：切换无 order 模式
+        if (useOrder || batchSize > 10) {
+          console.log(`[brain] 超时，切换到小批量模式 batchSize=20`);
+          useOrder = false;
+          batchSize = 20;
+          if (offset > 0) {
+            offset = Math.max(0, offset - 50); // 回退 offset
+          }
+          continue;
+        }
+        throw err;
+      }
+      throw err;
     }
-    const data = await res.json();
-    const results = data?.results || [];
-    all.push(...results);
-    if (results.length < 100) break;
-    offset += 100;
   }
   return all;
 }
@@ -230,20 +282,42 @@ export async function syncBrainAlphas(): Promise<{
   userInfo: boolean;
   error?: string;
   biometrics?: boolean;
+  alreadyRunning?: boolean;
 }> {
-  initDb();
-
-  // 1. 登录（返回 user.id）
-  const login = await loginBrain();
-  if (!login.ok) {
+  // 防止并发：已有同步在跑则直接返回
+  if (syncInProgress) {
     return {
       ok: false,
       unsubmitted: 0,
       submitted: 0,
       userInfo: false,
-      error: login.error,
-      biometrics: login.biometrics,
+      alreadyRunning: true,
+      error: '已有同步任务在后台运行',
     };
+  }
+  syncInProgress = true;
+  // 注意：sync route 会立即返回 202，不 await 这里
+  // 所以锁在整个后台任务期间由 syncInProgress=true 保持
+  syncBrainAlphasInternal().finally(() => {
+    syncInProgress = false;
+  });
+  // 返回一个已解决的 Promise，不暴露给调用方 await
+  return {
+    ok: true,
+    unsubmitted: 0,
+    submitted: 0,
+    userInfo: false,
+  };
+}
+
+async function syncBrainAlphasInternal(): Promise<void> {
+  initDb();
+
+  // 1. 登录（返回 user.id）
+  const login = await loginBrain();
+  if (!login.ok) {
+    console.error('[brain/sync internal] login failed:', login.error);
+    return;
   }
 
   // 2. 拉 unsubmitted + submitted
@@ -290,13 +364,17 @@ export async function syncBrainAlphas(): Promise<{
     };
 
     // upsert (SQLite ON CONFLICT)
-    db.insert(brainAlphas)
-      .values(row)
-      .onConflictDoUpdate({
-        target: brainAlphas.id,
-        set: { ...row, createdAt: undefined },
-      })
-      .run();
+    try {
+      db.insert(brainAlphas)
+        .values(row)
+        .onConflictDoUpdate({
+          target: brainAlphas.id,
+          set: { ...row, createdAt: undefined },
+        })
+        .run();
+    } catch (err: any) {
+      console.error(`[brain/sync] upsert error for id=${a.id}:`, err.message);
+    }
   }
 
   // 4. 保存 user info（来自登录响应 /users/me 备用）
@@ -319,12 +397,7 @@ export async function syncBrainAlphas(): Promise<{
     userInfoSynced = true;
   }
 
-  return {
-    ok: true,
-    unsubmitted: unsubmittedAlphas.length,
-    submitted: submittedAlphas.length,
-    userInfo: userInfoSynced,
-  };
+  console.log(`[brain/sync internal] done: unsubmitted=${unsubmittedAlphas.length} submitted=${submittedAlphas.length}`);
 }
 
 /**
@@ -358,7 +431,8 @@ export function getBrainStatus() {
   }
 
   return {
-    configured: isBrainConfigured(),
+    // 有 userInfo 数据说明同步已成功配置过（env 凭证可能有也可能已更新）
+    configured: !!userInfo,
     credentialsSet: isBrainConfigured(),
     lastSyncAt,
     unsubmittedCount,

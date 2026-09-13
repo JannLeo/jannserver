@@ -131,18 +131,19 @@ async function translateItems(items: NewsItem[]): Promise<NewsItem[]> {
   return results;
 }
 
-async function writeToDb(items: NewsItem[], originalTitles: string[]) {
+async function writeToDb(items: NewsItem[], originalTitles: string[], originalDescs: string[]) {
   try {
     const raw: any = sqlite;
     const insert = raw.prepare(`
-      INSERT INTO cached_news (title, link, source, pub_date, description, translated_title, is_translated, cached_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))
+      INSERT INTO cached_news (title, link, source, pub_date, description, translated_title, translated_description, is_translated, cached_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
       ON CONFLICT(link) DO UPDATE SET
         title = excluded.title,
         source = excluded.source,
         pub_date = excluded.pub_date,
         description = excluded.description,
         translated_title = excluded.translated_title,
+        translated_description = excluded.translated_description,
         is_translated = 1,
         cached_at = datetime('now')
     `);
@@ -152,7 +153,11 @@ async function writeToDb(items: NewsItem[], originalTitles: string[]) {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const originalTitle = i < originalTitles.length ? originalTitles[i] : item.title;
-        insert.run(originalTitle, item.link, item.source, item.pubDate, item.description, item.title);
+        const originalDesc = i < originalDescs.length ? originalDescs[i] : item.description;
+        // description field = Chinese (translated), for direct display
+        // translated_description field = Chinese (explicit), for clarity
+        // original English is stored in title field (via originalTitles) but we don't have a dedicated orig_desc column
+        insert.run(originalTitle, item.link, item.source, item.pubDate, item.description, item.title, item.description);
       }
     });
     tx();
@@ -176,12 +181,13 @@ export async function GET(req: Request) {
   items.sort((a, b) => (new Date(b.pubDate).getTime() || 0) - (new Date(a.pubDate).getTime() || 0));
   items = items.slice(0, MAX_ITEMS);
 
-  // 2. Translate all (batch, with delay) — preserve original English titles first
+  // 2. Translate all (batch, with delay) — preserve original English first
   const originalTitles = items.map(i => i.title);
+  const originalDescs = items.map(i => i.description);
   const translated = await translateItems(items);
 
-  // 3. Write to DB (original English → title, Chinese translation → translated_title)
-  const written = await writeToDb(translated, originalTitles);
+  // 3. Write to DB (original English → title, Chinese translation → translated_title + translated_description)
+  const written = await writeToDb(translated, originalTitles, originalDescs);
 
   // 4. Return summary
   return Response.json({

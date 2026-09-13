@@ -43,6 +43,15 @@ export function isEnabled(): boolean {
   return (process.env.MEDIA_CRAWLER_ENABLED || '').trim() === 'true';
 }
 
+/**
+ * 从环境变量读取 Bilibili cookie 字符串。
+ * 格式: key1=value1; key2=value2; ...
+ * 需要 SESSDATA, DedeUserID, DedeUserID__ckMd5 等核心字段才可正常搜索。
+ */
+export function getBiliCookies(): string {
+  return (process.env.MEDIA_CRAWLER_BILI_COOKIES || '').trim();
+}
+
 // ─── 1. 服务状态 ──────────────────────────────────────────────────────────────
 export interface StatusResult {
   configured: boolean;
@@ -329,11 +338,23 @@ export async function runJob(id: number): Promise<{ ok: boolean; error?: string 
       start_page: 1,
       enable_comments: true,
       enable_sub_comments: false,
-      save_option: 'json',
+      save_option: 'jsonl',        // 与 MediaCrawler 默认格式一致（jsonl）
       headless: true,
-      max_notes_count: Math.max(job.resultCount || 5, 1),
+      max_notes_count: Math.max(job.limit || 10, 1),
       max_comments_count: 10,
     };
+
+    // 注入 Bilibili cookie（关键！无 cookie 则搜索结果为默认推荐，非关键词相关）
+    const biliCookies = getBiliCookies();
+    if (biliCookies) {
+      body.cookies = biliCookies;
+      addJobMessage(id, 'info', '已注入 Bilibili cookie');
+    } else {
+      // 无 cookie 直接失败，不走无意义爬取
+      updateJobStatus(id, 'failed');
+      addJobMessage(id, 'error', '未配置 MEDIA_CRAWLER_BILI_COOKIES — 请先配置 Bilibili cookie 才能搜索，否则结果为空或不准确');
+      return { ok: false, error: '未配置 Bilibili cookie，请联系管理员配置 MEDIA_CRAWLER_BILI_COOKIES 环境变量' };
+    }
 
     addJobMessage(id, 'info', `调用 MediaCrawler: platform=${mcPlatform} type=${job.crawlType}`);
 
@@ -425,9 +446,17 @@ async function fetchAndSaveResults(jobId: number, job: any, baseUrl: string): Pr
       return;
     }
 
-    // 取最新的 JSON 文件
+    // 取最新的 JSON 文件（支持 .json 或 .jsonl）
     const latestFile = files[0];
-    addJobMessage(jobId, 'info', `结果文件: ${latestFile.path} (${latestFile.record_count || '?'} 条)`);
+    const fileModTime = latestFile.modified_at;
+    const jobCreateTime = new Date(job.createdAt).getTime() / 1000;
+    const isStale = fileModTime && jobCreateTime && fileModTime < jobCreateTime;
+
+    if (isStale) {
+      addJobMessage(jobId, 'warning', `结果文件 "${latestFile.path}" 修改时间早于任务创建时间，可能不是本次搜索结果`);
+    }
+
+    addJobMessage(jobId, 'info', `结果文件: ${latestFile.path} (${latestFile.record_count || '?'} 条${isStale ? ', ⚠️ 来自旧爬取' : ''})`);
 
     // 读取文件内容
     const contentRes = await fetch(`${baseUrl}/api/data/files/${latestFile.path}?preview=true&limit=50`);
@@ -483,7 +512,7 @@ async function fetchAndSaveResults(jobId: number, job: any, baseUrl: string): Pr
       .where(eq(videoAnalysisJobs.id, jobId))
       .run();
 
-    addJobMessage(jobId, 'success', `已保存 ${cnt} 条数据`);
+    addJobMessage(jobId, 'success', `已保存 ${cnt} 条数据${isStale ? '（⚠️ 来自旧爬取，请检查 Bilibili cookie 配置）' : ''}`);
   } catch (e) {
     addJobMessage(jobId, 'warning', `保存结果时出错: ${String(e)}`);
   }

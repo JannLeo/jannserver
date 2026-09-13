@@ -7,24 +7,32 @@ import remarkGfm from 'remark-gfm';
 
 function renderMarkdown(text: string | null | undefined) {
   if (!text) return '';
+
+  // 预处理行内 markdown（**bold** *italic* `code`），避免破坏列表/标题检测
+  const inline = (t: string) =>
+    t
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-stone-100 text-xs font-mono text-stone-700">$1</code>')
+      .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+
   return text
     .split('\n')
     .map(line => {
-      if (line.startsWith('### ')) return `<h3 class="text-base font-bold text-stone-700 mt-4 mb-1">${line.slice(4)}</h3>`;
-      if (line.startsWith('## ')) return `<h2 class="text-lg font-bold text-stone-800 mt-5 mb-2">${line.slice(3)}</h2>`;
+      if (line.startsWith('### ')) return `<h3 class="text-base font-bold text-stone-700 mt-4 mb-1">${inline(line.slice(4))}</h3>`;
+      if (line.startsWith('## ')) return `<h2 class="text-lg font-bold text-stone-800 mt-5 mb-2">${inline(line.slice(3))}</h2>`;
       if (line.startsWith('| ')) {
         if (line.includes('---')) return '';
-        return `<tr class="border-b border-stone-200">${line.split('|').filter(Boolean).map(c => `<td class="px-3 py-1.5 text-sm">${c.trim()}</td>`).join('')}</tr>`;
+        return `<tr class="border-b border-stone-200">${line.split('|').filter(Boolean).map(c => `<td class="px-3 py-1.5 text-sm">${inline(c.trim())}</td>`).join('')}</tr>`;
       }
       if (line.startsWith('```')) {
         const lang = line.slice(3).trim();
         return `<pre class="bg-stone-900 text-stone-100 rounded-xl p-4 my-3 overflow-x-auto text-sm"><code class="language-${lang}">`;
       }
       if (line === '```') return '</code></pre>';
-      if (line.startsWith('- ') || line.startsWith('* ')) return `<li class="text-sm text-stone-600 ml-4 list-disc">${line.slice(2)}</li>`;
-      if (line.match(/^\d+\. /)) return `<li class="text-sm text-stone-600 ml-4 list-decimal">${line.replace(/^\d+\. /, '')}</li>`;
+      if (line.startsWith('- ') || line.startsWith('* ')) return `<li class="text-sm text-stone-600 ml-4 list-disc">${inline(line.slice(2))}</li>`;
+      if (line.match(/^\d+\. /)) return `<li class="text-sm text-stone-600 ml-4 list-decimal">${inline(line.replace(/^\d+\. /, ''))}</li>`;
       if (line.trim() === '') return '<br/>';
-      return `<p class="text-sm text-stone-600 leading-relaxed">${line}</p>`;
+      return `<p class="text-sm text-stone-600 leading-relaxed">${inline(line)}</p>`;
     })
     .join('\n');
 }
@@ -265,6 +273,8 @@ export default function CourseDetailPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [showExercises, setShowExercises] = useState<Record<string, boolean>>({});
   const [showTutor, setShowTutor] = useState<Record<string, boolean>>({});
+  const [generatingCards, setGeneratingCards] = useState<Record<string, boolean>>({});
+  const [generatedCards, setGeneratedCards] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
     fetch(`/api/self-study/courses/${courseId}`)
@@ -390,7 +400,55 @@ export default function CourseDetailPage() {
                     }`}>
                     🤖 {showTutor[mod.id] ? '收起导师' : '问 AI 导师'}
                   </button>
+                  <button
+                    onClick={async () => {
+                      if (generatingCards[mod.id] || generatedCards[mod.id]) return;
+                      setGeneratingCards(g => ({...g, [mod.id]: true}));
+                      try {
+                        const res = await fetch('/api/self-study/flashcards/generate', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            moduleId: mod.id,
+                            courseId,
+                            moduleTitle: mod.title,
+                            content: mod.content || '',
+                          }),
+                        });
+                        const data = await res.json();
+                        if (data.cards) setGeneratedCards(gc => ({...gc, [mod.id]: data.cards}));
+                      } finally {
+                        setGeneratingCards(g => ({...g, [mod.id]: false}));
+                      }
+                    }}
+                    disabled={generatingCards[mod.id]}
+                    className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                      generatedCards[mod.id] ? 'bg-violet-100 text-violet-800 border border-violet-300' :
+                      generatingCards[mod.id] ? 'bg-stone-100 text-stone-400 border border-stone-200 cursor-wait' :
+                      'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100'
+                    }`}>
+                    🃏 {generatedCards[mod.id] ? `已生成${generatedCards[mod.id].length}张` : generatingCards[mod.id] ? '生成中...' : '生成闪卡'}
+                  </button>
                 </div>
+
+                {/* Generated flashcards preview */}
+                {generatedCards[mod.id] && (
+                  <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-violet-700">AI 生成 {generatedCards[mod.id].length} 张闪卡</span>
+                      <Link href="/self-study/flashcards" className="text-xs text-violet-600 hover:underline font-medium">去复习 →</Link>
+                    </div>
+                    {generatedCards[mod.id].slice(0, 3).map((card: any, i: number) => (
+                      <div key={i} className="rounded-lg bg-white border border-violet-100 p-2">
+                        <div className="text-xs font-medium text-stone-700">Q: {card.front}</div>
+                        <div className="text-xs text-stone-400 mt-0.5">A: {card.back}</div>
+                      </div>
+                    ))}
+                    {generatedCards[mod.id].length > 3 && (
+                      <div className="text-xs text-stone-400 text-center">还有 {generatedCards[mod.id].length - 3} 张...</div>
+                    )}
+                  </div>
+                )}
 
                 {/* Exercise section */}
                 {showExercises[mod.id] && <ExerciseSection moduleId={mod.id} />}

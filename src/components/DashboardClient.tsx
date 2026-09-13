@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Task {
   id: string;
@@ -11,11 +13,9 @@ interface Task {
   completedAt?: string | null;
 }
 
-interface RepoStat {
-  id: number;
+interface IntegratedRepo {
   name: string;
-  lastSyncAt: string | null;
-  documentCount: number;
+  safeName: string;
 }
 
 interface UsageSummary {
@@ -27,6 +27,18 @@ interface UsageSummary {
   tokenCountToday: number | null;
 }
 
+interface DailySummaryData {
+  configured: boolean;
+  summary?: string;
+  content?: string;
+  error?: string;
+}
+
+interface DashboardData {
+  todayDate: string;
+  todayTasks: Task[];
+  undoneTasks: Task[];
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getGreeting(hour: number): string {
@@ -79,6 +91,15 @@ function TaskItem({ task, onToggle, toggling }: {
   );
 }
 
+// ─── Stat Badge ──────────────────────────────────────────────────────────────
+function StatBadge({ label, value, tone }: { label: string; value: string | number; tone: string }) {
+  return (
+    <div className="rounded-2xl bg-white/40 px-4 py-3 border border-stone-200/60">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-stone-500">{label}</p>
+      <p className={`mt-1 text-2xl font-black tracking-[-0.04em] ${tone}`}>{value}</p>
+    </div>
+  );
+}
 
 // ─── Source Badge ────────────────────────────────────────────────────────────
 function getTypeLabel(docType: string): string {
@@ -101,236 +122,301 @@ function UsageSection({ summary }: { summary: UsageSummary | null }) {
     return `¥${b.toFixed(2)}`;
   };
 
+  const fmtTokens = (n: number | null | undefined): string => {
+    if (n == null) return '-';
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return String(n);
+  };
+
+  // 估算当日用量百分比（假设每日预算为余额的 0.5% 作为参考线）
+  const balance = summary.balance ?? 0;
+  const usedToday = summary.usedToday ?? 0;
+  const dailyBudget = balance * 0.005;
+  const usagePct = dailyBudget > 0 ? Math.min((usedToday / dailyBudget) * 100, 100) : 0;
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      {/* 请求数 */}
-      <div className="rounded-2xl bg-gradient-to-br from-teal-600 to-teal-700 p-4 text-white shadow-lg shadow-teal-200/50">
-        <p className="text-xs font-bold text-teal-100 tracking-wide">今日请求</p>
-        <p className="mt-2 text-3xl font-black tracking-tighter">{summary.requestCountToday ?? '-'}</p>
-        <p className="mt-1 text-[10px] text-teal-200">次</p>
+    <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-5 shadow-sm">
+      {/* 标题行 */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">💳 用量概览</h2>
+        <a href="/usage" className="text-[10px] font-bold text-teal-700 hover:underline">
+          查看详情 →
+        </a>
       </div>
 
-      {/* 今日花费 */}
-      <div className="rounded-2xl bg-white border border-stone-200/60 p-4 shadow-sm">
-        <p className="text-xs font-bold text-stone-500 tracking-wide">今日花费</p>
-        <p className="mt-2 text-2xl font-black text-stone-900 tracking-tight">{f(summary.usedToday)}</p>
-        <p className="mt-1 text-[10px] text-stone-400">Token {(summary.tokenCountToday || 0).toLocaleString()}</p>
+      {/* 余额大数字 */}
+      <div className="flex items-baseline gap-2 mb-4">
+        <span className="text-3xl font-black tracking-[-0.04em] text-stone-900">
+          {summary.balance != null ? fmtBalance(summary.balance) : '-'}
+        </span>
+        <span className="text-xs text-stone-400 font-semibold">当前余额</span>
       </div>
 
-      {/* 7天花费 */}
-      <div className="rounded-2xl bg-white border border-stone-200/60 p-4 shadow-sm">
-        <p className="text-xs font-bold text-stone-500 tracking-wide">近7天</p>
-        <p className="mt-2 text-2xl font-black text-stone-900 tracking-tight">{f(summary.used7d)}</p>
-        <p className="mt-1 text-[10px] text-stone-400">累计</p>
-      </div>
-
-      {/* 余额 */}
-      {summary.balance != null && (
-        <div className="rounded-2xl bg-white border border-stone-200/60 p-4 shadow-sm">
-          <p className="text-xs font-bold text-stone-500 tracking-wide">余额</p>
-          <p className="mt-2 text-2xl font-black text-emerald-600 tracking-tight">{fmtBalance(summary.balance)}</p>
-          <p className="mt-1 text-[10px] text-stone-400">储备</p>
+      {/* 今日用量进度条 */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between text-xs text-stone-500 mb-1.5">
+          <span className="font-semibold">今日用量</span>
+          <span className="font-bold text-stone-700">
+            {f(usedToday)}
+            <span className="font-normal text-stone-400"> / {dailyBudget > 0 ? fmtBalance(dailyBudget) : '-'}</span>
+          </span>
         </div>
-      )}
+        <div className="h-2.5 bg-stone-200/70 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-700 ease-out"
+            style={{
+              width: `${usagePct}%`,
+              background: usagePct > 80
+                ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                : usagePct > 50
+                  ? 'linear-gradient(90deg, #0f766e, #f59e0b)'
+                  : 'linear-gradient(90deg, #14b8a6, #0f766e)',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 指标网格 */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl bg-white/50 border border-stone-200/60 p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-stone-400">今日消耗</p>
+          <p className="mt-0.5 text-lg font-black tracking-[-0.03em] text-stone-800">
+            {f(usedToday)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white/50 border border-stone-200/60 p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-stone-400">今日请求</p>
+          <p className="mt-0.5 text-lg font-black tracking-[-0.03em] text-stone-800">
+            {summary.requestCountToday ?? '-'}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white/50 border border-stone-200/60 p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-stone-400">7 日消耗</p>
+          <p className="mt-0.5 text-lg font-black tracking-[-0.03em] text-stone-800">
+            {f(summary.used7d)}
+          </p>
+        </div>
+      </div>
+
+      {/* Token 信息条 */}
+      <div className="mt-3 pt-3 border-t border-stone-200/60 flex items-center gap-3 text-xs text-stone-400">
+        <span>
+          Tokens <strong className="font-bold text-stone-600">{fmtTokens(summary.tokenCountToday)}</strong>
+        </span>
+        {summary.used30d != null && (
+          <span>
+            30日 <strong className="font-bold text-stone-600">{f(summary.used30d)}</strong>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── Daily Summary Section ───────────────────────────────────────────────────
-/**
- * Extracts the AI summary content from the full daily markdown.
- *
- * Stops at the FIRST occurrence of any of these to avoid capturing
- * template sections or duplicate headers:
- *   - \n#   (any h1 heading — template has `# YYYY-MM-DD`)
- *   - \n##  (any h2 heading — template has `## 今日重点` etc.)
- *   - \n--- (markdown horizontal rule separating AI summary from template)
- *   - end of string
- */
-const AI_SUMMARY_RE = /## AI 总结[\s\S]*?(?=\n# |\n---|\n## |$)/;
-
-function extractSummary(text: string): string | null {
-  const match = text.match(AI_SUMMARY_RE);
-  if (match) {
-    // Trim the "## AI 总结" header, and any trailing horizontal rules or blank lines
-    return match[0]
-      .replace(/^## AI 总结\s*\n?/, '')
-      .replace(/\n---\s*$/, '')
-      .replace(/\n# \d{4}-\d{2}-\d{2}\s*$/, '')
-      .trim();
-  }
-  return null;
-}
-
-function DailySummarySection({ todayDate }: { todayDate: string }) {
-  const [summary, setSummary] = useState<string | null>(null);
+// ─── Trending Optimization Section ──────────────────────────────────────────
+function TrendingOptimizationSection() {
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const autoTriggeredRef = useRef(false);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [integrating, setIntegrating] = useState<Record<string, string>>({});
+  const [shuffleSeed, setShuffleSeed] = useState(0);
+  const [integratedRepos, setIntegratedRepos] = useState<{ name: string; safeName: string; href: string }[]>([]);
 
   useEffect(() => {
-    // 使用多 Agent API
-    fetch(`/api/ai/daily-summary/multiagent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: todayDate }),
-    })
-      .then(r => r.json())
-      .then(d => {
-        if (d.summary) {
-          setSummary(d.summary);
-          setLoading(false);
-        } else {
-          setLoading(false);
-          // 如果多 Agent 失败，fallback 到旧 API
-          if (!autoTriggeredRef.current) {
-            fallbackToOldApi(todayDate);
+      // 加载已整合仓库列表
+      fetch('/api/integrated')
+        .then(r => r.ok ? r.json() : [])
+        .then(repos => { if (Array.isArray(repos)) setIntegratedRepos(repos); })
+        .catch(() => {});
+    }, []);
+
+    useEffect(() => {
+      // 优先读缓存（毫秒级响应，不等 AI）
+      fetch('/api/dashboard/trending-cached')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d && !d.error) {
+            setData(d);
+            setLoading(false);
+            setAiAnalyzing(false);
+            return;
           }
-        }
-      })
-      .catch(() => {
-        setLoading(false);
-        if (!autoTriggeredRef.current) {
-          fallbackToOldApi(todayDate);
-        }
-      });
-  }, [todayDate]);
+          throw new Error('cache_miss');
+        })
+        .catch(() => {
+          // 缓存没有或过期 → 实时生成（fallback，会慢）
+          setAiAnalyzing(true);
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 55000);
+          fetch(`/api/ai/trending-analysis?since=weekly&seed=${shuffleSeed}`, { signal: controller.signal })
+            .then(r => r.json())
+            .then(d => {
+              clearTimeout(timeout);
+              if (d.aiAnalyzed) {
+                setData(d);
+                setAiAnalyzing(false);
+                setLoading(false);
+              } else {
+                throw new Error('aiNotAnalyzed');
+              }
+            })
+            .catch((err) => {
+              clearTimeout(timeout);
+              if (err.message === 'aiNotAnalyzed') setError('AI 分析未完成，显示原始趋势');
+              else setError('获取趋势失败，显示原始数据');
+              setAiAnalyzing(false);
+              fetch(`/api/ai/trending-analysis?since=weekly&skip_ai=1&seed=${shuffleSeed}`)
+                .then(r => r.json())
+                .then(d => { if (!d.error) setData(d); setLoading(false); })
+                .catch(() => { setError('无法获取趋势数据'); setLoading(false); });
+            });
+        });
+    }, [shuffleSeed]);
 
-  const fallbackToOldApi = (date: string) => {
-    autoTriggeredRef.current = true;
-    setGenerating(true);
-    fetch('/api/ai/daily-summary/generate-and-save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.content) {
-          const extracted = extractSummary(data.content);
-          if (extracted) setSummary(extracted);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setGenerating(false));
-  };
-
-  const handleGenerate = async () => {
-    setGenerating(true);
+  const handleIntegrate = async (repo: any) => {
+    const key = repo.name || repo.fullName;
+    const repoUrl = `https://github.com/${key}`;
+    setIntegrating(prev => ({ ...prev, [key]: 'integrating' }));
     try {
-      const res = await fetch('/api/ai/daily-summary/generate-and-save', {
+      const res = await fetch('/api/ai/integrate-repo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-regenerate': 'true' },
-        body: JSON.stringify({ date: todayDate }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl,
+          repoName: key,
+          integrationSteps: repo.integrationSteps || '',
+          complexity: repo.complexity || 'medium',
+          effortHours: repo.effortHours || 2,
+        }),
       });
-      const data = await res.json();
-      if (data.content) {
-        const extracted = extractSummary(data.content);
-        if (extracted) setSummary(extracted);
+      const result = await res.json();
+      if (!res.ok) {
+        console.error('[integrate] failed:', result.error);
+        setIntegrating(prev => ({ ...prev, [key]: 'error' }));
+      } else {
+        setIntegrating(prev => ({ ...prev, [key]: 'done' }));
+        setTimeout(() => setIntegrating(prev => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        }), 5000);
       }
-    } catch {}
-    setGenerating(false);
+    } catch (err) {
+      console.error('[integrate] error:', err);
+      setIntegrating(prev => ({ ...prev, [key]: 'error' }));
+    }
   };
 
-  if (loading) return (
-    <div className="space-y-2">
-      <div className="animate-pulse h-5 bg-teal-100/50 rounded-lg w-3/4" />
-      <div className="animate-pulse h-5 bg-teal-100/50 rounded-lg w-1/2" />
-      <div className="animate-pulse h-5 bg-teal-100/50 rounded-lg w-2/3" />
-    </div>
-  );
+  const complexityBadge = (c: string) => {
+    const colors: Record<string, string> = {
+      low: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      medium: 'bg-amber-100 text-amber-700 border-amber-200',
+      high: 'bg-red-100 text-red-700 border-red-200',
+    };
+    const labels: Record<string, string> = { low: '简单', medium: '中等', high: '复杂' };
+    return (
+      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${colors[c] || colors.medium}`}>
+        {labels[c] || c}
+      </span>
+    );
+  };
 
-  const generatingIndicator = generating && (
-    <div className="flex items-center gap-2 text-sm text-teal-600 mb-3">
-      <span className="inline-block w-4 h-4 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
-      正在生成日总结…
-    </div>
-  );
+  if (loading) return <div className="animate-pulse h-24 bg-stone-100 rounded-2xl" />;
+  if (error && !data) return <p className="text-xs text-red-500">{error}</p>;
+  if (!data) return null;
+
+  const { analysis, recommendations, totalRepos } = data;
 
   return (
-    <div>
-      {summary ? (
-        <div>
-          {generatingIndicator}
-          <div className="prose prose-sm max-w-none">
-            {summary.split('\n').map((line, i) => {
-              const trimmed = line.trim();
-              if (!trimmed) return <br key={i} />;
-              // 检测是否是列表项
-              if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-                return (
-                  <div key={i} className="flex gap-2.5 mb-2.5">
-                    <span className="mt-1.5 flex h-2 w-2 shrink-0 rounded-full bg-teal-500" />
-                    <span className="text-base font-semibold leading-relaxed text-stone-800">{trimmed.slice(2)}</span>
-                  </div>
-                );
-              }
-              // 检测是否是数字列表
-              if (/^\d+\.\s/.test(trimmed)) {
-                return (
-                  <div key={i} className="flex gap-2 mb-2.5">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700">
-                      {trimmed.match(/^(\d+)\./)?.[1]}
-                    </span>
-                    <span className="text-base font-semibold leading-relaxed text-stone-800">{trimmed.replace(/^\d+\.\s/, '')}</span>
-                  </div>
-                );
-              }
-              // 如果是标题行（以 ## 开头）
-              if (trimmed.startsWith('## ')) {
-                return (
-                  <h3 key={i} className="text-base font-black text-teal-800 mb-2 mt-3">{trimmed.replace(/^##\s*/, '')}</h3>
-                );
-              }
-              // 普通段落
-              return (
-                <p key={i} className="text-base font-semibold leading-relaxed text-stone-800 mb-2.5">{trimmed}</p>
-              );
-            })}
-          </div>
-          <div className="mt-4 flex items-center gap-3">
-            <Link href={`/daily/${todayDate}`} className="inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:text-teal-800 transition-colors">
-              查看完整日报
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="text-xs font-bold text-stone-400 hover:text-teal-600 transition-colors disabled:opacity-50"
-            >
-              重新生成
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="text-center py-6">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-100 mb-3">
-            <svg className="h-6 w-6 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-          </div>
-          <p className="text-sm text-stone-500 mb-3">今天还没有日总结</p>
+    <div className="space-y-3">
+      {analysis && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] text-stone-500">{analysis}</p>
           <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-teal-600 text-white text-sm font-bold shadow-md shadow-teal-200/50 hover:bg-teal-700 hover:shadow-lg hover:shadow-teal-200/50 transition-all disabled:opacity-50 active:scale-95"
+            onClick={() => setShuffleSeed(s => s + 1)}
+            className="flex-shrink-0 text-[10px] px-2.5 py-1 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-500 font-bold transition-colors"
+            title="换一批仓库"
           >
-            {generating ? (
-              <>
-                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                生成中…
-              </>
-            ) : (
-              <>
-                <span>✨</span>
-                生成 AI 日总结
-              </>
-            )}
+            🔄 换一换
           </button>
         </div>
       )}
+      {recommendations.length === 0 ? (
+        <p className="text-sm text-stone-400">暂无适合的仓库推荐</p>
+      ) : (
+        <div className="space-y-2">
+          {recommendations.slice(0, 20).map((repo: any) => {
+            const key = repo.name || repo.fullName;
+            const status = integrating[key];
+            return (
+              <div key={key}
+                className="rounded-xl border border-stone-200 bg-white/70 p-3 transition hover:border-amber-300/60">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-stone-800 truncate">{key}</span>
+                      <span className="text-[10px] text-stone-400">{repo.language}</span>
+                      {repo.todayStars && (
+                        <span className="text-[10px] text-amber-600 font-semibold">{repo.todayStars}</span>
+                      )}
+                      {complexityBadge(repo.complexity)}
+                    </div>
+                    {repo.description && (
+                      <p className="mt-1 text-[10px] text-stone-400 line-clamp-2">{repo.description}</p>
+                    )}
+                    <p className="mt-0.5 text-[11px] text-stone-500 line-clamp-1">{repo.reason}</p>
+                    {repo.integrationSteps && repo.integrationSteps !== '需手动分析整合方式' && (
+                      <p className="mt-0.5 text-[10px] text-stone-400 line-clamp-1">{repo.integrationSteps}</p>
+                    )}
+                  </div>
+                  <div className="flex-shrink-0">
+                    {status === 'integrating' && (
+                      <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-teal-100 text-teal-700 text-[11px] font-bold">
+                        <span className="inline-block w-2.5 h-2.5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                        整合中
+                      </span>
+                    )}
+                    {status === 'done' && (
+                      <span className="inline-block px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold">
+                        ✓ 已创建任务
+                      </span>
+                    )}
+                    {status === 'error' && (
+                      <span className="inline-block px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+                        ✗ 失败
+                      </span>
+                    )}
+                    {!status && (
+                      <button
+                        onClick={() => handleIntegrate(repo)}
+                        className="px-3 py-1.5 rounded-full bg-teal-700 hover:bg-teal-800 text-white text-[11px] font-bold transition-colors whitespace-nowrap"
+                      >
+                        🤖 让 AI 整合
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {aiAnalyzing && (
+        <div className="flex items-center gap-2 text-[10px] text-stone-400">
+          <span className="inline-block w-2.5 h-2.5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          <span>AI 正在深度分析推荐...</span>
+        </div>
+      )}
+      {error && (
+        <p className="text-[10px] text-stone-400">{error}</p>
+      )}
+      <div className="pt-2 border-t border-stone-100">
+        <a href="/trending" className="text-[10px] font-bold text-teal-700 hover:underline">
+          查看全部趋势 →
+        </a>
+      </div>
     </div>
   );
 }
@@ -347,8 +433,7 @@ function AskSection({ todayDate }: { todayDate: string }) {
     if (!q) return;
     setLoading(true); setError(''); setAnswer('');
     try {
-      // 使用多 Agent API
-      const res = await fetch('/api/ai/ask-multiagent', {
+      const res = await fetch('/api/ai/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: q }),
@@ -382,13 +467,8 @@ function AskSection({ todayDate }: { todayDate: string }) {
       {loading && <p className="mt-2 text-xs text-stone-400 animate-pulse">查询知识库中…</p>}
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
       {answer && (
-        <div className="mt-2">
-          <div className="p-3 rounded-2xl bg-white/60 border border-stone-200 text-sm text-stone-700 leading-relaxed max-h-40 overflow-y-auto">
-            {answer}
-          </div>
-          <Link href="/ask" className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-teal-600 hover:text-teal-800 transition-colors">
-            去完整问答页面 →
-          </Link>
+        <div className="mt-2 p-3 rounded-2xl bg-white/60 border border-stone-200 text-sm text-stone-700 leading-relaxed max-h-40 overflow-y-auto">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
         </div>
       )}
     </div>
@@ -422,52 +502,86 @@ function OverviewSection({ tasks }: { tasks: Task[] }) {
   );
 }
 
-
 // ─── Top Section ─────────────────────────────────────────────────────────────
-function TopSection({ todayDate }: { todayDate: string }) {
+function TopSection({ todayDate, initialTasks, integratedRepos }: {
+  todayDate: string;
+  initialTasks: Task[];
+  integratedRepos: IntegratedRepo[];
+}) {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [undoneTasks, setUndoneTasks] = useState<Task[]>(initialTasks.filter((tk: Task) => tk.status !== 'done'));
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/usage').then(r => r.json()).catch(() => null),
-      fetch('/api/tasks?limit=50').then(r => r.json()).catch(() => ({ tasks: [] })),
-    ]).then(([u, t]) => {
-      if (u && u.ok) setUsage(u);
-      const taskList: Task[] = t.tasks ?? [];
-      setTasks(taskList);
-    });
+    // Refresh usage from server
+    fetch('/api/new-api/usage').then(r => r.json()).catch(() => null)
+      .then(u => { if (u && u.summary) setUsage(u.summary); });
   }, [todayDate]);
+
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const handleToggle = async (id: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'done' ? 'todo' : 'done';
+    setTogglingId(id);
+    try {
+      await fetch('/api/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus }),
+      });
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      setUndoneTasks(prev =>
+        newStatus === 'done'
+          ? prev.filter(t => t.id !== id)
+          : [...prev, tasks.find(t => t.id === id)!]
+      );
+    } catch {}
+    setTogglingId(null);
+  };
 
   return (
     <section>
-      <div className="mb-6">
+      {/* 用量概览 - 独占一行大卡片 */}
+      <div className="mb-4">
         <UsageSection summary={usage} />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        {/* Daily Summary */}
-        <div className="rounded-2xl border border-stone-900/10 bg-gradient-to-br from-teal-50/80 to-white p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-600 text-white shadow-md shadow-teal-200">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            <h2 className="text-sm font-black tracking-[-0.02em] text-teal-800">AI 日总结</h2>
-          </div>
-          <DailySummarySection todayDate={todayDate} />
-        </div>
-
-        {/* Today's Questions */}
-        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900 mb-3">💬 向知识库提问</h2>
+      {/* 知识库提问 - 放在每日趋势上面 */}
+      <div className="mb-4 rounded-2xl border border-stone-900/10 bg-white/55 p-6 shadow-sm">
+        <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">💬 知识库提问</h2>
+        <div className="mt-4">
           <AskSection todayDate={todayDate} />
         </div>
+      </div>
 
+      <div className="grid gap-3 lg:grid-cols-1">
         {/* Overview */}
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <OverviewSection tasks={tasks} />
+          <OverviewSection tasks={undoneTasks} />
+        </div>
+
+        {/* 语音助手快捷入口 */}
+        {/* 编程助手 (opencode) 快捷入口 */}
+        <div className="rounded-2xl border border-amber-200/60 bg-gradient-to-br from-amber-50/80 to-white/55 p-4 shadow-sm hover:border-amber-400/60 transition-colors">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-black tracking-[-0.02em] text-amber-800">💻 编程助手 (opencode)</h2>
+              <p className="text-[10px] text-amber-600 mt-0.5">基于 OpenCode，代码生成 & 调试，浏览器内运行</p>
+            </div>
+            <Link
+              href="/coding"
+              className="flex-shrink-0 w-11 h-11 rounded-full bg-amber-500 text-white flex items-center justify-center text-xl shadow-md hover:bg-amber-600 transition-colors"
+            >
+              🛠
+            </Link>
+          </div>
+        </div>
+
+        {/* AI 优化：Trending 仓库分析 + 整合推荐 — 移到最后 */}
+        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">🔥 每日趋势 · AI 整合推荐</h2>
+          <p className="text-[10px] text-stone-400 mt-0.5 mb-3">每日更新，可滚动查看更多 → 点击让 AI 整合到工作台</p>
+          <TrendingOptimizationSection />
         </div>
       </div>
     </section>
@@ -475,20 +589,13 @@ function TopSection({ todayDate }: { todayDate: string }) {
 }
 
 // ─── Bottom Section ──────────────────────────────────────────────────────────
-function BottomSection({ todayDate }: { todayDate: string }) {
-  const [repos, setRepos] = useState<RepoStat[]>([]);
+function BottomSection({ todayDate, integratedRepos }: { todayDate: string; integratedRepos: IntegratedRepo[] }) {
   const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/repos').then(r => r.json()).catch(() => ({ repos: [] })),
-      fetch('/api/news').then(r => r.json()).catch(() => ({ articles: [] })),
-    ]).then(([r, n]) => {
-      setRepos(r.repos ?? []);
-      setNews(n.articles ?? []);
-      setLoading(false);
-    });
+    fetch('/api/news').then(r => r.json()).catch(() => ({ articles: [] }))
+      .then(n => { setNews(n.items ?? n.articles ?? []); setLoading(false); });
   }, [todayDate]);
 
   if (loading) {
@@ -502,30 +609,34 @@ function BottomSection({ todayDate }: { todayDate: string }) {
     );
   }
 
-  const syncRepos = repos.filter(r => r.lastSyncAt);
-  const unsyncRepos = repos.filter(r => !r.lastSyncAt);
-
   return (
     <section>
+      {/* 已整合仓库 和 新闻 - 并排两列 */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Inbox / New Notes */}
+        {/* 已整合仓库 */}
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-            <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">Repos</h2>
-            {syncRepos.length > 0 ? (
+            <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">🧩 已整合仓库</h2>
+            {integratedRepos.length > 0 ? (
               <div className="mt-3 space-y-2">
-                {syncRepos.slice(0, 4).map(repo => (
-                  <div key={repo.id} className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-stone-700">{repo.name}</span>
-                    <span className="text-[10px] text-stone-400">{repo.documentCount} 文档</span>
-                  </div>
+                {integratedRepos.slice(0, 6).map(repo => (
+                  <Link
+                    key={repo.safeName}
+                    href={`/${repo.safeName}`}
+                    className="group flex items-center justify-between rounded-xl p-2 transition hover:bg-teal-50/60"
+                  >
+                    <span className="text-xs font-semibold text-stone-700 group-hover:text-teal-700 line-clamp-1">
+                      {repo.name}
+                    </span>
+                    <span className="text-[10px] text-teal-600 font-medium">访问 →</span>
+                  </Link>
                 ))}
+                {integratedRepos.length > 6 && (
+                  <p className="text-[10px] text-stone-400">还有 {integratedRepos.length - 6} 个...</p>
+                )}
               </div>
             ) : (
-              <p className="mt-3 text-xs text-stone-400">还没有同步仓库</p>
-            )}
-            {unsyncRepos.length > 0 && (
-              <p className="mt-2 text-[10px] text-amber-600">{unsyncRepos.length} 个仓库未同步</p>
+              <p className="mt-3 text-xs text-stone-400">点击热门仓库 → 🤖 让 AI 整合</p>
             )}
           </div>
         </div>
@@ -561,13 +672,16 @@ function BottomSection({ todayDate }: { todayDate: string }) {
 // ─── Main Dashboard Component ────────────────────────────────────────────────
 interface DashboardInitialData {
   todayDate: string;
+  todayTasks: Task[];
+  allTasks: Task[];
+  integratedRepos: IntegratedRepo[];
 }
 
 export default function DashboardPage({ initialData }: { initialData: DashboardInitialData }) {
   const todayDate = initialData.todayDate;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-teal-50/40 via-white to-stone-50/40 p-3 sm:p-6 lg:p-8">
+    <div className="bg-gradient-to-b from-teal-50/40 via-white to-stone-50/40 p-3 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-5xl">
         {/* Header */}
         <div className="mb-6">
@@ -579,10 +693,14 @@ export default function DashboardPage({ initialData }: { initialData: DashboardI
           </p>
         </div>
 
-        <TopSection todayDate={todayDate} />
+        <TopSection
+          todayDate={todayDate}
+          initialTasks={initialData.allTasks}
+          integratedRepos={initialData.integratedRepos}
+        />
 
         <div className="mt-6">
-          <BottomSection todayDate={todayDate} />
+          <BottomSection todayDate={todayDate} integratedRepos={initialData.integratedRepos} />
         </div>
       </div>
     </div>

@@ -78,13 +78,21 @@ export default function SelfStudyDashboard() {
       </div>
 
       {/* Quick actions */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Link href="/self-study/courses"
           className="flex items-center gap-4 rounded-2xl border border-teal-200 bg-teal-50 p-5 transition hover:shadow-md">
           <span className="text-3xl">📚</span>
           <div>
             <div className="font-bold text-stone-700">浏览课程</div>
             <div className="text-xs text-stone-500">结构化学习路径</div>
+          </div>
+        </Link>
+        <Link href="/self-study/english"
+          className="flex items-center gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-5 transition hover:shadow-md">
+          <span className="text-3xl">🇬🇧</span>
+          <div>
+            <div className="font-bold text-stone-700">英语自学</div>
+            <div className="text-xs text-stone-500">背单词·刷题·错题本</div>
           </div>
         </Link>
         <Link href="/self-study/tutor"

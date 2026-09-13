@@ -11,6 +11,7 @@ const nextConfig = {
       { protocol: 'https', hostname: 'wfqqreader-1252317822.image.myqcloud.com' },
     ],
   },
+
   typescript: {
     // 跳过 TS 编译时检查，加快构建速度（类型错误不影响运行时）
     ignoreBuildErrors: true,

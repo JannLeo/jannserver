@@ -250,6 +250,17 @@ export default function VideoAnalysisPage() {
     return () => clearInterval(interval);
   }, [pollingJobId]);
 
+  const handleDelete = async (jobId: number) => {
+    if (!confirm('确定删除该任务？所有采集数据和分析结果都将删除。')) return;
+    try {
+      const res = await fetch(`/api/video-analysis/jobs/${jobId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setJobs(prev => prev.filter(j => j.id !== jobId));
+        if (selectedJob?.id === jobId) setSelectedJob(null);
+      }
+    } catch {}
+  };
+
   const handleAnalyze = async (jobId: number) => {
     setAnalyzing(true);
     setAnalyzeResult(null);
@@ -490,6 +501,13 @@ export default function VideoAnalysisPage() {
                                 {analyzing ? '分析中...' : 'AI 分析'}
                               </button>
                             )}
+                            <button
+                              onClick={() => handleDelete(job.id)}
+                              className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100"
+                              title="删除该任务及其所有数据"
+                            >
+                              🗑
+                            </button>
                           </div>
                         </td>
                       </tr>
