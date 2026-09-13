@@ -3,6 +3,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { herdrAuth } from '@/lib/herdr-auth';
 
+export const dynamic = 'force-dynamic';
+
 const execFileAsync = promisify(execFile);
 
 export async function GET(req: NextRequest) {
@@ -24,8 +26,9 @@ export async function GET(req: NextRequest) {
       workspaces: snapshot.workspaces || [],
       layouts: snapshot.layouts || [],
     });
-  } catch (e: any) {
-    console.error('[herdr/snapshot]', e?.message || e);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[herdr/snapshot]', message);
     return NextResponse.json(
       {
         error: 'herdr server 未运行或不可用',
