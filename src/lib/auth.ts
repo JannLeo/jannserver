@@ -95,19 +95,32 @@ export function getRateLimitConfig() {
 }
 
 // Login rate limiting is backed by SQLite so it works across process restarts.
+// The composite index matches the hot lookup (identity + recent timestamp) and
+// prepared statements avoid reparsing SQL on every login attempt.
+sqlite.exec(
+  "CREATE INDEX IF NOT EXISTS idx_login_failures_username_attempt ON login_failures(username, attempt_at)",
+);
+const pruneLoginFailures = sqlite.prepare(
+  "DELETE FROM login_failures WHERE attempt_at < datetime('now', ?)",
+);
+const countLoginFailures = sqlite.prepare(
+  "SELECT COUNT(*) as cnt FROM login_failures WHERE username = ? AND attempt_at > datetime('now', ?)",
+);
+const insertLoginFailure = sqlite.prepare(
+  "INSERT INTO login_failures (username, attempt_at) VALUES (?, datetime('now'))",
+);
+const deleteLoginFailures = sqlite.prepare(
+  "DELETE FROM login_failures WHERE username = ?",
+);
+
 export async function checkRateLimit(key: string): Promise<{ allowed: boolean; remaining: number }> {
   const { windowMs, maxAttempts } = getRateLimitConfig();
   const windowSeconds = Math.max(1, Math.ceil(windowMs / 1000));
   const modifier = `-${windowSeconds} seconds`;
 
-  sqlite.prepare(
-    "DELETE FROM login_failures WHERE attempt_at < datetime('now', ?)",
-  ).run(modifier);
+  pruneLoginFailures.run(modifier);
 
-  const result = sqlite.prepare(
-    "SELECT COUNT(*) as cnt FROM login_failures WHERE username = ? AND attempt_at > datetime('now', ?)",
-  ).get(key, modifier) as { cnt: number } | undefined;
-
+  const result = countLoginFailures.get(key, modifier) as { cnt: number } | undefined;
   const count = result?.cnt ?? 0;
   return {
     allowed: count < maxAttempts,
@@ -116,18 +129,15 @@ export async function checkRateLimit(key: string): Promise<{ allowed: boolean; r
 }
 
 export async function recordFailure(key: string): Promise<void> {
-  sqlite.prepare(
-    "INSERT INTO login_failures (username, attempt_at) VALUES (?, datetime('now'))",
-  ).run(key);
+  insertLoginFailure.run(key);
 }
 
 export async function clearFailures(...keys: string[]): Promise<void> {
   const uniqueKeys = [...new Set(keys.filter(Boolean))];
   if (uniqueKeys.length === 0) return;
 
-  const stmt = sqlite.prepare("DELETE FROM login_failures WHERE username = ?");
   const clearMany = sqlite.transaction((values: string[]) => {
-    for (const value of values) stmt.run(value);
+    for (const value of values) deleteLoginFailures.run(value);
   });
   clearMany(uniqueKeys);
 }
