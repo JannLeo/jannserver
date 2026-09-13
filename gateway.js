@@ -2,7 +2,10 @@
  * Gateway: port 3000 → HTTP:3002 (Next.js), WS:3001 (ws-proxy → tailsshd)
  * Routes selected HTTP traffic to local services and keeps streaming responses streaming.
  */
+'use strict';
+
 const http = require('http');
+const { unsealData } = require('iron-session');
 const { WebSocket, WebSocketServer } = require('ws');
 
 const NEXT_PORT = parseInt(process.env.NEXT_PORT || '3002', 10);
@@ -11,6 +14,7 @@ const GATEWAY_PORT = parseInt(process.env.GATEWAY_PORT || '3000', 10);
 const OPENCODE_PORT = parseInt(process.env.OPENCODE_PORT || '34567', 10);
 const PROXY_IDLE_TIMEOUT_MS = parseInt(process.env.PROXY_IDLE_TIMEOUT_MS || '300000', 10);
 const MAX_HTML_REWRITE_BYTES = parseInt(process.env.MAX_HTML_REWRITE_BYTES || String(8 * 1024 * 1024), 10);
+const SESSION_COOKIE_NAME = 'workspace_session';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -32,6 +36,57 @@ function copyHeaders(headers, { dropContentLength = false } = {}) {
     if (value != null) result[key] = value;
   }
   return result;
+}
+
+function parseCookies(header) {
+  const cookies = {};
+  for (const part of String(header || '').split(';')) {
+    const index = part.indexOf('=');
+    if (index <= 0) continue;
+    const name = part.slice(0, index).trim();
+    const rawValue = part.slice(index + 1).trim();
+    try {
+      cookies[name] = decodeURIComponent(rawValue);
+    } catch {
+      cookies[name] = rawValue;
+    }
+  }
+  return cookies;
+}
+
+async function isWorkspaceAuthenticated(req) {
+  const password = process.env.SESSION_SECRET?.trim() || '';
+  if (password.length < 32) {
+    console.error('[gateway] SESSION_SECRET is missing or shorter than 32 characters');
+    return false;
+  }
+
+  const seal = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+  if (!seal) return false;
+
+  try {
+    const session = await unsealData(seal, { password });
+    return Boolean(session && session.userId);
+  } catch (error) {
+    console.warn('[gateway] rejected invalid session cookie:', error?.message || error);
+    return false;
+  }
+}
+
+function sendUnauthorized(res) {
+  if (res.destroyed || res.writableEnded) return;
+  res.writeHead(401, {
+    'content-type': 'text/plain; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  res.end('Unauthorized');
+}
+
+function rejectUpgrade(socket) {
+  if (!socket.destroyed) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+  }
+  socket.destroy();
 }
 
 function sendProxyError(res, error, label = 'proxy') {
@@ -116,8 +171,6 @@ function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
     proxyRes.on('error', (error) => sendProxyError(res, error, 'proxy:response'));
   });
 
-  // Idle timeout resets as data flows, unlike the old one-shot timer which could
-  // terminate healthy long-running requests after five minutes.
   proxyReq.setTimeout(PROXY_IDLE_TIMEOUT_MS, () => {
     proxyReq.destroy(new Error(`upstream idle timeout after ${PROXY_IDLE_TIMEOUT_MS}ms`));
   });
@@ -133,48 +186,64 @@ function proxyHttp(req, res, { port, path, rewriteCodingHtml = false }) {
 // ── TailSSH WS server ───────────────────────────────────────────────────────
 const wss = new WebSocketServer({ noServer: true });
 wss.on('connection', (clientWs, req) => {
-  const hostId = (req.url || '').replace(/^\/ws\//, '');
-  if (!hostId) {
+  let hostId = '';
+  try {
+    const parsed = new URL(req.url || '/', 'http://localhost');
+    hostId = parsed.pathname.replace(/^\/ws\//, '');
+  } catch {
     clientWs.close(1002);
     return;
   }
 
-  const backend = new WebSocket(WS_PROXY + '/ws/' + hostId);
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(hostId)) {
+    clientWs.close(1008);
+    return;
+  }
+
+  const backend = new WebSocket(`${WS_PROXY}/ws/${encodeURIComponent(hostId)}`);
   clientWs.on('message', (data, isBinary) => {
     if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
   });
-  clientWs.on('close', () => backend.close());
-  clientWs.on('error', () => backend.close());
+  clientWs.on('close', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
+  clientWs.on('error', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
   backend.on('message', (data, isBinary) => {
     if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
   });
-  backend.onclose = () => {
+  backend.on('close', () => {
     if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
-  };
-  backend.onerror = () => {
-    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
-  };
+  });
+  backend.on('error', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011);
+  });
 });
 
 // HTTP server (handles both HTTP requests and WS upgrades)
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = req.url || '/';
-  const isTailSSH = url.startsWith('/api/tailssh/');
-  const isVibe = url.startsWith('/vibe/');
-  const isCoding = url.startsWith('/coding-proxy/');
+  const isVibe = url === '/vibe' || url.startsWith('/vibe/');
+  const isCoding = url === '/coding-proxy' || url.startsWith('/coding-proxy/');
 
-  const upstreamPort = isTailSSH ? 9222 : isVibe ? 8899 : isCoding ? OPENCODE_PORT : NEXT_PORT;
-  const upstreamPath = isTailSSH
-    ? url.replace('/api/tailssh', '')
-    : isVibe
-      ? url.replace('/vibe', '')
-      : isCoding
-        ? url.replace('/coding-proxy', '')
-        : url;
+  // TailSSH HTTP is intentionally NOT intercepted here anymore. It goes through
+  // Next.js /api/tailssh where the normal workspace middleware authenticates it.
+  if ((isVibe || isCoding) && !(await isWorkspaceAuthenticated(req))) {
+    sendUnauthorized(res);
+    return;
+  }
+
+  const upstreamPort = isVibe ? 8899 : isCoding ? OPENCODE_PORT : NEXT_PORT;
+  const upstreamPath = isVibe
+    ? url.replace(/^\/vibe/, '') || '/'
+    : isCoding
+      ? url.replace(/^\/coding-proxy/, '') || '/'
+      : url;
 
   proxyHttp(req, res, {
     port: upstreamPort,
-    path: upstreamPath || '/',
+    path: upstreamPath,
     rewriteCodingHtml: isCoding,
   });
 });
@@ -187,33 +256,49 @@ codingWss.on('connection', (clientWs, req) => {
   clientWs.on('message', (data, isBinary) => {
     if (backend.readyState === WebSocket.OPEN) backend.send(data, { binary: isBinary });
   });
-  clientWs.on('close', () => backend.close());
-  clientWs.on('error', () => backend.close());
+  clientWs.on('close', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
+  clientWs.on('error', () => {
+    if (backend.readyState === WebSocket.OPEN || backend.readyState === WebSocket.CONNECTING) backend.close();
+  });
   backend.on('message', (data, isBinary) => {
     if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
   });
-  backend.onclose = () => {
+  backend.on('close', () => {
     if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
-  };
-  backend.onerror = () => {
-    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
-  };
+  });
+  backend.on('error', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011);
+  });
 });
 
 // ── WS upgrade handler ──────────────────────────────────────────────────────
-server.on('upgrade', (req, socket, head) => {
+server.on('upgrade', async (req, socket, head) => {
   const url = req.url || '';
-  if (url.startsWith('/ws/')) {
+  const isTailSshWs = url.startsWith('/ws/');
+  const isCodingWs = url === '/coding-proxy' || url.startsWith('/coding-proxy/');
+
+  if (!isTailSshWs && !isCodingWs) {
+    socket.destroy();
+    return;
+  }
+
+  if (!(await isWorkspaceAuthenticated(req))) {
+    rejectUpgrade(socket);
+    return;
+  }
+
+  if (isTailSshWs) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
     });
-  } else if (url.startsWith('/coding-proxy/')) {
-    codingWss.handleUpgrade(req, socket, head, (ws) => {
-      codingWss.emit('connection', ws, req);
-    });
-  } else {
-    socket.destroy();
+    return;
   }
+
+  codingWss.handleUpgrade(req, socket, head, (ws) => {
+    codingWss.emit('connection', ws, req);
+  });
 });
 
 server.on('clientError', (error, socket) => {
