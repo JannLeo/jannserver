@@ -48,9 +48,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: '筛选参数过长' }, { status: 400 });
   }
 
-  const folderId = folderRaw === null ? null : Number(folderRaw);
-  if (folderRaw !== null && (!Number.isSafeInteger(folderId) || folderId <= 0)) {
-    return NextResponse.json({ error: '无效的 folder 参数' }, { status: 400 });
+  let folderId: number | null = null;
+  if (folderRaw !== null) {
+    const parsedFolderId = Number(folderRaw);
+    if (!Number.isSafeInteger(parsedFolderId) || parsedFolderId <= 0) {
+      return NextResponse.json({ error: '无效的 folder 参数' }, { status: 400 });
+    }
+    folderId = parsedFolderId;
   }
 
   const conds: any[] = [];
