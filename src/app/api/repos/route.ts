@@ -1,51 +1,64 @@
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  getAllRepos,
   createRepo,
+  getAllRepos,
+  validateBranch,
+  validateRepoName,
   validateRepoUrl,
-  validateLocalPath,
 } from '@/lib/repos';
-import path from 'path';
-import { REPOS_BASE_DIR } from '@/lib/paths';
 
 // GET /api/repos
 export async function GET() {
   try {
-    const repos = getAllRepos();
-    return NextResponse.json(repos);
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json(getAllRepos());
+  } catch (error) {
+    console.error('[api/repos] failed to list repositories', error);
+    return NextResponse.json({ error: 'Failed to list repositories' }, { status: 500 });
   }
 }
 
 // POST /api/repos
 export async function POST(req: NextRequest) {
   try {
-    const { name, url, branch } = await req.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: '请求体必须是 JSON' }, { status: 400 });
+    }
+
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    const branch = typeof body.branch === 'string' && body.branch.trim() ? body.branch.trim() : 'main';
 
     if (!name || !url) {
       return NextResponse.json({ error: 'name 和 url 必填' }, { status: 400 });
     }
-
-    if (!validateRepoUrl(url)) {
+    if (!validateRepoName(name)) {
       return NextResponse.json(
-        { error: 'URL 必须以 https://github.com/JannLeo/ 开头' },
-        { status: 400 }
+        { error: 'name 只能包含字母、数字、点、下划线和连字符，最长 100 字符' },
+        { status: 400 },
       );
     }
-
-    const localPath = path.resolve(REPOS_BASE_DIR, name);
-    if (!validateLocalPath(localPath)) {
-      return NextResponse.json({ error: '无效的本地路径' }, { status: 400 });
+    if (!validateRepoUrl(url)) {
+      return NextResponse.json(
+        { error: 'URL 必须是 https://github.com/JannLeo/<repo>' },
+        { status: 400 },
+      );
+    }
+    if (!validateBranch(branch)) {
+      return NextResponse.json({ error: '无效的 Git 分支名' }, { status: 400 });
     }
 
-    createRepo({ name, url, branch: branch || 'main' });
+    const duplicate = getAllRepos().find((repo) => repo.name === name || repo.url === url);
+    if (duplicate) {
+      return NextResponse.json({ error: '该仓库已经登记' }, { status: 409 });
+    }
 
-    const repos = getAllRepos();
-    const created = repos.find(r => r.name === name);
+    const created = createRepo({ name, url, branch });
     return NextResponse.json(created, { status: 201 });
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+  } catch (error) {
+    console.error('[api/repos] failed to create repository', error);
+    return NextResponse.json({ error: 'Failed to create repository' }, { status: 500 });
   }
 }
