@@ -45,18 +45,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          DATA_DIR="$RUNNER_TEMP/jannserver-data"
+          mkdir -p "$DATA_DIR"
+          # Simulate a common production bind mount owned by root/another host UID.
+          sudo chown root:root "$DATA_DIR"
+          sudo chmod 0755 "$DATA_DIR"
+
           docker run -d --name jannserver-ci \
             -p 33000:3000 \
+            -v "$DATA_DIR:/data" \
             -e SESSION_SECRET=ci-only-session-secret-0123456789abcdef0123456789abcdef \
             -e INIT_TOKEN=ci-only-init-token \
-            -e DB_PATH=/tmp/jannserver.db \
             -e ALLOWED_HOSTS=localhost,127.0.0.1 \
             jannserver-ci
-          trap 'docker logs jannserver-ci || true; docker rm -f jannserver-ci >/dev/null 2>&1 || true' EXIT
+          trap 'docker logs jannserver-ci || true; docker rm -f jannserver-ci >/dev/null 2>&1 || true; sudo rm -rf "$DATA_DIR"' EXIT
 
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error http://127.0.0.1:33000/api/health >/dev/null; then
-              echo "Container health endpoint is ready"
+            if health="$(curl --fail --silent --show-error http://127.0.0.1:33000/api/health 2>/dev/null)"; then
+              echo "$health" | grep -q '"status":"ok"'
+              echo "$health" | grep -q '"database":"ok"'
+              test -f "$DATA_DIR/app.db"
+              echo "Container, SQLite runtime, and persistent data mount are healthy"
               exit 0
             fi
             if [[ "$(docker inspect -f '{{.State.Running}}' jannserver-ci 2>/dev/null || true)" != "true" ]]; then
