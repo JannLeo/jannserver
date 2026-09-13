@@ -1,35 +1,44 @@
-import { db, initDb } from './db/index';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
 import path from 'path';
 
-const DATA_DIR = process.env.DB_PATH?.replace('/app.db', '') || './data';
+const DB_PATH = path.resolve(process.env.DB_PATH || './data/app.db');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.dirname(DB_PATH));
 
 function resolvePath(relativePath: string): string {
-  const p = path.join(DATA_DIR, relativePath);
-  // 禁止路径穿越
-  if (!p.startsWith(path.join(DATA_DIR))) throw new Error('Path traversal denied');
-  return p;
+  if (typeof relativePath !== 'string' || relativePath.includes('\0')) {
+    throw new Error('Invalid storage path');
+  }
+
+  const fullPath = path.resolve(DATA_DIR, relativePath);
+  const relative = path.relative(DATA_DIR, fullPath);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Path traversal denied');
+  }
+  return fullPath;
 }
 
 export function readMarkdown(relativePath: string): string {
+  if (!relativePath) return '';
   const fullPath = resolvePath(relativePath);
   if (!existsSync(fullPath)) return '';
   return readFileSync(fullPath, 'utf-8');
 }
 
 export function writeMarkdown(relativePath: string, content: string): void {
+  if (!relativePath) throw new Error('Storage path is required');
   const fullPath = resolvePath(relativePath);
   mkdirSync(path.dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content, 'utf-8');
 }
 
 export function deleteFile(relativePath: string): void {
+  if (!relativePath) return;
   const fullPath = resolvePath(relativePath);
-  const { rmSync } = require('fs');
   rmSync(fullPath, { force: true });
 }
 
 export function fileExists(relativePath: string): boolean {
+  if (!relativePath) return false;
   return existsSync(resolvePath(relativePath));
 }
 
