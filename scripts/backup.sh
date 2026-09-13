@@ -1,16 +1,20 @@
-#!/bin/bash
-DATA_DIR="${1:-./data}"
-BACKUP_DIR="${2:-./data/backups}"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-DB_PATH="$DATA_DIR/app.db"
-mkdir -p "$BACKUP_DIR"
+#!/bin/sh
+set -eu
 
-if [ ! -f "$DB_PATH" ]; then
-  echo "No database found at $DB_PATH"
-  exit 1
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# Backward-compatible positional overrides:
+#   ./scripts/backup.sh [data_dir] [backup_dir]
+if [ "$#" -ge 1 ] && [ -n "$1" ]; then
+  DATA_DIR=$1
+  DB_PATH="$DATA_DIR/app.db"
+  export DATA_DIR DB_PATH
+  shift
+fi
+if [ "$#" -ge 1 ] && [ -n "$1" ]; then
+  BACKUP_DIR=$1
+  export BACKUP_DIR
+  shift
 fi
 
-# WAL checkpoint + safe backup
-sqlite3 "$DB_PATH" "PRAGMA wal_checkpoint(TRUNCATE);"
-sqlite3 "$DB_PATH" ".backup $BACKUP_DIR/app_$TIMESTAMP.db"
-echo "Backup created: $BACKUP_DIR/app_$TIMESTAMP.db"
+exec node "$SCRIPT_DIR/backup.mjs" "$@"
