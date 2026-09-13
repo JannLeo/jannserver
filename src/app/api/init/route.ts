@@ -74,8 +74,8 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
 
   // Keep "is the system initialized?" and the first insert in one IMMEDIATE
-  // SQLite transaction. Concurrent init requests serialize here, so only one
-  // request can create the initial user even when usernames differ.
+  // SQLite transaction. Concurrent init requests serialize before the read, so
+  // only one request can create the initial user even when usernames differ.
   const createInitialUser = sqlite.transaction(() => {
     const existing = sqlite.prepare('SELECT id FROM users LIMIT 1').get() as { id: number } | undefined;
     if (existing) return null;
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     return { id: Number(result.lastInsertRowid), username };
   });
 
-  const inserted = createInitialUser();
+  const inserted = createInitialUser.immediate();
   if (!inserted) {
     return NextResponse.json(
       { error: 'System already initialized' },
