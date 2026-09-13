@@ -24,6 +24,7 @@ SESSION_SECRET=<至少 32 个随机字符>
 INIT_TOKEN=<随机初始化令牌>
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<强密码>
+ALLOWED_HOSTS=your-domain.example.com,127.0.0.1
 ```
 
 推荐直接生成：
@@ -35,7 +36,15 @@ openssl rand -hex 32   # HERDR_API_KEY（如需要机器调用）
 openssl rand -hex 32   # DELEGATION_API_KEY（如需要机器调用）
 ```
 
-生产环境不要使用仓库示例值。`SESSION_SECRET` 少于 32 个字符时，生产鉴权会拒绝启动请求。
+生产环境不要使用仓库示例值。`SESSION_SECRET` 少于 32 个字符时，生产鉴权会拒绝请求。
+
+默认生产 Cookie 带 `Secure`，因此正式部署应通过 HTTPS 访问。如果你明确只在可信的纯 HTTP/Tailscale 网络中使用，才设置：
+
+```env
+ALLOW_HTTP_COOKIES=true
+```
+
+如果通过域名、服务器 IP 或 Tailscale 主机名访问，还要把对应 hostname 加入 `ALLOWED_HOSTS`，否则浏览器的写请求会被 CSRF 主机校验拒绝。
 
 ### 2. 启动
 
@@ -68,7 +77,7 @@ curl -X POST http://127.0.0.1:3000/api/init \
   -d '{"username":"admin","password":"YourPassword123!"}'
 ```
 
-然后访问 `http://your-server:3000/login` 登录。
+然后通过你配置好的 HTTPS 地址登录；仅在可信纯 HTTP/Tailscale 场景并设置 `ALLOW_HTTP_COOKIES=true` 时使用 `http://.../login`。
 
 也可以在本机 Node 环境中初始化：
 
