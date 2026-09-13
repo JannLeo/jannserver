@@ -7,7 +7,7 @@ const sharedAuthEnv = {
   INIT_TOKEN: process.env.INIT_TOKEN,
   HERDR_API_KEY: process.env.HERDR_API_KEY,
   DELEGATION_API_KEY: process.env.DELEGATION_API_KEY,
-  ALLOWED_HOSTS: process.env.ALLOWED_HOSTS || 'localhost,127.0.0.1',
+  ALLOWED_HOSTS: process.env.ALLOWED_HOSTS || 'localhost,127.0.0.1,::1',
   ALLOW_HTTP_COOKIES: process.env.ALLOW_HTTP_COOKIES,
 };
 
@@ -16,12 +16,16 @@ module.exports = {
     {
       name: 'personal-workspace',
       script: 'node_modules/.bin/next',
-      args: `start -p ${NEXT_PORT}`,
+      // Keep the raw Next server private; gateway.js is the public HTTP boundary.
+      args: `start -H 127.0.0.1 -p ${NEXT_PORT}`,
       cwd: APP_CWD,
       interpreter: NODE_BIN,
       env: {
         NODE_ENV: 'production',
         ...sharedAuthEnv,
+        // Safe here because only the local gateway can reach NEXT_PORT, and the
+        // gateway overwrites x-forwarded-for/x-real-ip from the TCP peer.
+        TRUST_PROXY_HEADERS: 'true',
         DB_PATH: process.env.DB_PATH,
         RATE_LIMIT_WINDOW_MS: process.env.RATE_LIMIT_WINDOW_MS || '900000',
         RATE_LIMIT_MAX_ATTEMPTS: process.env.RATE_LIMIT_MAX_ATTEMPTS || '5',
