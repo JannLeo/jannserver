@@ -2,6 +2,7 @@
 const nextConfig = {
   // The production Docker image copies .next/standalone, so make Next emit it.
   output: 'standalone',
+  poweredByHeader: false,
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3'],
   },
@@ -14,11 +15,28 @@ const nextConfig = {
   },
 
   typescript: {
-    // 跳过 TS 编译时检查，加快构建速度（类型错误不影响运行时）
+    // Kept temporarily for compatibility with the existing codebase. CI runs a
+    // separate build check; removing this bypass is a follow-up cleanup item.
     ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), geolocation=(), microphone=(self)',
+          },
+        ],
+      },
+    ];
   },
   async rewrites() {
     return [
