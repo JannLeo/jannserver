@@ -1,70 +1,114 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const LLM_URL = 'http://127.0.0.1:10000/v1/chat/completions';
+const MAX_REQUEST_BYTES = 1024 * 1024;
+const LLM_TIMEOUT_MS = 5 * 60 * 1000;
+
+function rewriteSseLine(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('data: ')) return `${line}\n`;
+
+  const payload = trimmed.slice(6);
+  if (payload === '[DONE]') return `${line}\n`;
+
+  try {
+    const event = JSON.parse(payload);
+    const delta = event?.choices?.[0]?.delta;
+    if (delta?.reasoning_content) {
+      if (!delta.content) delta.content = delta.reasoning_content;
+      delete delta.reasoning_content;
+    }
+    return `data: ${JSON.stringify(event)}\n\n`;
+  } catch {
+    return `${line}\n`;
+  }
+}
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  
-  // 禁用 Qwen 思考模式
-  body.chat_template_kwargs = { enable_thinking: false };
-
-  const res = await fetch('http://127.0.0.1:10000/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    return new Response(await res.text(), { status: res.status });
+  const declaredLength = Number.parseInt(req.headers.get('content-length') || '0', 10);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
+    return NextResponse.json({ error: 'Request body too large' }, { status: 413 });
   }
 
-  // 拦截 SSE 流，过滤掉 reasoning_content
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
+  let rawBody: string;
+  try {
+    rawBody = await req.text();
+  } catch {
+    return NextResponse.json({ error: 'Unable to read request body' }, { status: 400 });
+  }
+
+  if (Buffer.byteLength(rawBody, 'utf8') > MAX_REQUEST_BYTES) {
+    return NextResponse.json({ error: 'Request body too large' }, { status: 413 });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(rawBody || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return NextResponse.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    }
+    body = parsed as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: 'Request body must be valid JSON' }, { status: 400 });
+  }
+
+  // Disable Qwen reasoning mode at the trusted local gateway regardless of what
+  // the browser sent.
+  body.chat_template_kwargs = { enable_thinking: false };
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(LLM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.error('[llm-proxy] upstream unavailable', error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: 'LLM backend unavailable' }, { status: 502 });
+  }
+
+  if (!upstream.ok) {
+    // Do not pass local backend diagnostics or stack traces to browser clients.
+    try { await upstream.body?.cancel(); } catch {}
+    return NextResponse.json(
+      { error: 'LLM backend rejected the request' },
+      { status: upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502 },
+    );
+  }
+
+  if (!upstream.body) {
+    return NextResponse.json({ error: 'LLM backend returned an empty response' }, { status: 502 });
+  }
+
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+  let buffer = '';
 
-  let buf = '';
-  res.body!.pipeTo(new WritableStream({
-    write(chunk) {
-      buf += decoder.decode(chunk, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() || '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data: ')) {
-          writer.write(encoder.encode(line + '\n'));
-          continue;
-        }
-        const payload = trimmed.slice(6);
-        if (payload === '[DONE]') {
-          writer.write(encoder.encode(line + '\n'));
-          continue;
-        }
-        try {
-          const j = JSON.parse(payload);
-          if (j.choices?.[0]?.delta?.reasoning_content) {
-            // 把 reasoning_content 挪到 content，然后删除 reasoning_content
-            const reasoning = j.choices[0].delta.reasoning_content;
-            if (!j.choices[0].delta.content) {
-              j.choices[0].delta.content = reasoning;
-            }
-            delete j.choices[0].delta.reasoning_content;
-          }
-          writer.write(encoder.encode('data: ' + JSON.stringify(j) + '\n\n'));
-        } catch {
-          writer.write(encoder.encode(line + '\n'));
-        }
-      }
+  const filterReasoning = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) controller.enqueue(encoder.encode(rewriteSseLine(line)));
     },
-    close() {
-      // 处理剩余 buf
-      if (buf.trim()) writer.write(encoder.encode(buf + '\n'));
-      writer.close();
+    flush(controller) {
+      buffer += decoder.decode();
+      if (buffer) controller.enqueue(encoder.encode(rewriteSseLine(buffer)));
     },
-  }));
+  });
 
-  return new Response(readable, {
+  return new Response(upstream.body.pipeThrough(filterReasoning), {
+    status: upstream.status,
     headers: {
-      'Content-Type': res.headers.get('Content-Type') || 'text/event-stream',
+      'Content-Type': upstream.headers.get('content-type') || 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store, no-transform',
+      'X-Accel-Buffering': 'no',
     },
   });
 }
