@@ -27,8 +27,14 @@ export function getSessionSecret(): string {
   return DEV_SESSION_SECRET;
 }
 
+// Keep the session secret lazy. Next.js imports route modules while building the
+// standalone server, but the production secret should only be required when a
+// request actually needs a session. This also avoids baking credentials into a
+// Docker image at build time.
 export const sessionOptions = {
-  password: getSessionSecret(),
+  get password(): string {
+    return getSessionSecret();
+  },
   cookieName: "workspace_session",
   cookieOptions: {
     // Tailscale/HTTP 环境下设 ALLOW_HTTP_COOKIES=true，否则浏览器不存储 session cookie
