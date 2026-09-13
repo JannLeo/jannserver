@@ -50,6 +50,35 @@ export async function GET(req: NextRequest, { params }: { params: { date: string
   return NextResponse.json({ ...page!, content });
 }
 
+// POST /api/daily/:date - 创建或更新每日页面
+export async function POST(req: NextRequest, { params }: { params: { date: string } }) {
+  initDb();
+  const { date } = params;
+  const { content } = await req.json();
+
+  let page = db.select().from(dailyPages).where(eq(dailyPages.date, date)).get();
+
+  if (!page) {
+    const id = uuidv4();
+    const filePath = `daily/${date}.md`;
+    const template = content || DEFAULT_DAILY_TEMPLATE.replace('{{date}}', date);
+    writeMarkdown(filePath, template);
+
+    const now = new Date().toISOString();
+    db.insert(dailyPages).values({ id, date, filePath, createdAt: now, updatedAt: now }).run();
+    await updateFts('daily', id, `Daily ${date}`, template);
+
+    return NextResponse.json({ id, date, filePath, content: template }, { status: 201 });
+  }
+
+  // 已存在则更新内容
+  writeMarkdown(page.filePath || '', content);
+  db.update(dailyPages).set({ updatedAt: new Date().toISOString() }).where(eq(dailyPages.date, date)).run();
+  await updateFts('daily', page.id, `Daily ${date}`, content);
+
+  return NextResponse.json({ ok: true });
+}
+
 // PUT /api/daily/:date
 export async function PUT(req: NextRequest, { params }: { params: { date: string } }) {
   initDb();

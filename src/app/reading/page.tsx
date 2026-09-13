@@ -30,10 +30,14 @@ interface SearchResult {
   coverUrl: string;
   bigCoverUrl: string;
   isbn: string;
-  firstPublishYear: number;
-  subjects: string[];
-  publisher: string;
-  language: string;
+  firstPublishYear?: number | null;
+  subjects?: string[];
+  publisher?: string;
+  language?: string;
+  source?: string;
+  intro?: string;
+  rating?: number;
+  price?: number;
 }
 
 function formatDate(d: string) {
@@ -60,6 +64,7 @@ export default function ReadingPage() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchDone, setSearchDone] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [addingId, setAddingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'library' | 'search'>('library');
@@ -86,13 +91,15 @@ export default function ReadingPage() {
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
 
   const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) { setSearchResults([]); setSearchDone(false); return; }
+    if (!q.trim()) { setSearchResults([]); setSearchDone(false); setSearchError(''); return; }
     setSearching(true);
     setSearchDone(false);
+    setSearchError('');
     try {
       const res = await fetch(`/api/books?q=${encodeURIComponent(q)}&type=title`);
       const data = await res.json();
       setSearchResults(data.results ?? []);
+      if (data.error) setSearchError(data.error);
     } finally {
       setSearching(false);
       setSearchDone(true);
@@ -110,13 +117,14 @@ export default function ReadingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: `ol:${result.key}`,
+          id: result.source === 'weread' ? `weread:${result.key}` : `ol:${result.key}`,
           title: result.title,
           author: result.author,
           isbn: result.isbn,
           coverUrl: result.coverUrl || result.bigCoverUrl,
           language: result.language ?? 'en',
-          source: 'openlibrary',
+          source: result.source ?? 'openlibrary',
+          description: result.intro || '',
         }),
       });
       if (res.ok) {
@@ -255,7 +263,7 @@ export default function ReadingPage() {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
-              placeholder="输入书名、作者或 ISBN..."
+              placeholder={'输入书名或作者名（例如 "活着"、"Yu Hua"、"To Live"）...'}
               className="flex-1 rounded-2xl border border-stone-200 bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 shadow-sm focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100"
             />
             <button
@@ -275,7 +283,9 @@ export default function ReadingPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {searchResults.map(result => {
                 const isInLib = library.some(b =>
-                  b.id === `ol:${result.key}` || b.id === `isbn:${result.isbn}`
+                  b.id === `weread:${result.key}` ||
+                  b.id === `ol:${result.key}` ||
+                  b.id === `isbn:${result.isbn}`
                 );
                 const isAdding = addingId === result.key;
                 return (
@@ -289,8 +299,19 @@ export default function ReadingPage() {
                     )}
                     <h3 className="line-clamp-2 text-sm font-bold text-stone-900">{result.title}</h3>
                     <p className="mt-1 line-clamp-1 text-xs text-stone-500">{result.author || '未知作者'}</p>
-                    {result.firstPublishYear && (
+                    {result.firstPublishYear ? (
                       <p className="mt-1 text-xs text-stone-400">{result.firstPublishYear}</p>
+                    ) : result.price ? (
+                      <p className="mt-1 text-xs text-stone-400">
+                        {result.price === 0 ? '免费' : `¥${result.price}`}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-stone-400">{result.publisher || ''}</p>
+                    )}
+                    {result.rating && (
+                      <p className="mt-0.5 text-xs text-amber-500">
+                        {'★'.repeat(Math.round(result.rating / 200))}{'☆'.repeat(5 - Math.round(result.rating / 200))} {result.rating / 200}
+                      </p>
                     )}
                     <button
                       onClick={() => addToLibrary(result)}
@@ -313,7 +334,11 @@ export default function ReadingPage() {
             <div className="rounded-2xl border border-dashed border-stone-200 py-12 text-center">
               <p className="text-3xl">🔍</p>
               <p className="mt-2 font-semibold text-stone-500">没有找到相关书籍</p>
-              <p className="text-xs text-stone-400">尝试不同的关键词或 ISBN</p>
+              {searchError ? (
+                <p className="mt-2 text-xs text-amber-600">{searchError}</p>
+              ) : (
+                <p className="text-xs text-stone-400">尝试其他关键词，或使用 ISBN 搜索</p>
+              )}
             </div>
           )}
         </div>

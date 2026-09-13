@@ -27,24 +27,6 @@ interface UsageSummary {
   tokenCountToday: number | null;
 }
 
-interface DailySummaryData {
-  configured: boolean;
-  summary?: string;
-  content?: string;
-  error?: string;
-}
-
-interface ActivityData {
-  repos: any[];
-  totalCommits: number;
-}
-
-interface DashboardData {
-  todayDate: string;
-  todayTasks: Task[];
-  undoneTasks: Task[];
-  repos: RepoStat[];
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getGreeting(hour: number): string {
@@ -97,15 +79,6 @@ function TaskItem({ task, onToggle, toggling }: {
   );
 }
 
-// ─── Stat Badge ──────────────────────────────────────────────────────────────
-function StatBadge({ label, value, tone }: { label: string; value: string | number; tone: string }) {
-  return (
-    <div className="rounded-2xl bg-white/40 px-4 py-3 border border-stone-200/60">
-      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-stone-500">{label}</p>
-      <p className={`mt-1 text-2xl font-black tracking-[-0.04em] ${tone}`}>{value}</p>
-    </div>
-  );
-}
 
 // ─── Source Badge ────────────────────────────────────────────────────────────
 function getTypeLabel(docType: string): string {
@@ -129,15 +102,36 @@ function UsageSection({ summary }: { summary: UsageSummary | null }) {
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500">
-        <span>今日 <strong className="text-stone-800">{summary.requestCountToday ?? '-'} 请求</strong></span>
-        <span>花费 <strong className="text-stone-800">{f(summary.usedToday)}</strong></span>
-        <span>Token <strong className="text-stone-800">{(summary.tokenCountToday || 0).toLocaleString()}</strong></span>
-        {summary.balance != null && (
-          <span className="flex-shrink-0">余额 <strong className="text-emerald-700">{fmtBalance(summary.balance)}</strong></span>
-        )}
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* 请求数 */}
+      <div className="rounded-2xl bg-gradient-to-br from-teal-600 to-teal-700 p-4 text-white shadow-lg shadow-teal-200/50">
+        <p className="text-xs font-bold text-teal-100 tracking-wide">今日请求</p>
+        <p className="mt-2 text-3xl font-black tracking-tighter">{summary.requestCountToday ?? '-'}</p>
+        <p className="mt-1 text-[10px] text-teal-200">次</p>
       </div>
+
+      {/* 今日花费 */}
+      <div className="rounded-2xl bg-white border border-stone-200/60 p-4 shadow-sm">
+        <p className="text-xs font-bold text-stone-500 tracking-wide">今日花费</p>
+        <p className="mt-2 text-2xl font-black text-stone-900 tracking-tight">{f(summary.usedToday)}</p>
+        <p className="mt-1 text-[10px] text-stone-400">Token {(summary.tokenCountToday || 0).toLocaleString()}</p>
+      </div>
+
+      {/* 7天花费 */}
+      <div className="rounded-2xl bg-white border border-stone-200/60 p-4 shadow-sm">
+        <p className="text-xs font-bold text-stone-500 tracking-wide">近7天</p>
+        <p className="mt-2 text-2xl font-black text-stone-900 tracking-tight">{f(summary.used7d)}</p>
+        <p className="mt-1 text-[10px] text-stone-400">累计</p>
+      </div>
+
+      {/* 余额 */}
+      {summary.balance != null && (
+        <div className="rounded-2xl bg-white border border-stone-200/60 p-4 shadow-sm">
+          <p className="text-xs font-bold text-stone-500 tracking-wide">余额</p>
+          <p className="mt-2 text-2xl font-black text-emerald-600 tracking-tight">{fmtBalance(summary.balance)}</p>
+          <p className="mt-1 text-[10px] text-stone-400">储备</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -175,60 +169,51 @@ function DailySummarySection({ todayDate }: { todayDate: string }) {
   const autoTriggeredRef = useRef(false);
 
   useEffect(() => {
-    fetch(`/api/daily/${todayDate}`)
+    // 使用多 Agent API
+    fetch(`/api/ai/daily-summary/multiagent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: todayDate }),
+    })
       .then(r => r.json())
       .then(d => {
-        const text = d.content || d.rawContent || '';
-        const extracted = extractSummary(text);
-        if (extracted) {
-          setSummary(extracted);
+        if (d.summary) {
+          setSummary(d.summary);
           setLoading(false);
         } else {
           setLoading(false);
-          // 没有 AI 总结 → 自动生成并保存
+          // 如果多 Agent 失败，fallback 到旧 API
           if (!autoTriggeredRef.current) {
-            autoTriggeredRef.current = true;
-            setGenerating(true);
-            fetch('/api/ai/daily-summary/generate-and-save', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ date: todayDate }),
-            })
-              .then(r => r.json())
-              .then(data => {
-                if (data.content) {
-                  const extracted = extractSummary(data.content);
-                  if (extracted) setSummary(extracted);
-                }
-              })
-              .catch(() => {})
-              .finally(() => setGenerating(false));
+            fallbackToOldApi(todayDate);
           }
         }
       })
       .catch(() => {
         setLoading(false);
-        // 网络错误也自动生成
         if (!autoTriggeredRef.current) {
-          autoTriggeredRef.current = true;
-          setGenerating(true);
-          fetch('/api/ai/daily-summary/generate-and-save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: todayDate }),
-          })
-            .then(r => r.json())
-            .then(data => {
-              if (data.content) {
-                const extracted = extractSummary(data.content);
-                if (extracted) setSummary(extracted);
-              }
-            })
-            .catch(() => {})
-            .finally(() => setGenerating(false));
+          fallbackToOldApi(todayDate);
         }
       });
   }, [todayDate]);
+
+  const fallbackToOldApi = (date: string) => {
+    autoTriggeredRef.current = true;
+    setGenerating(true);
+    fetch('/api/ai/daily-summary/generate-and-save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.content) {
+          const extracted = extractSummary(data.content);
+          if (extracted) setSummary(extracted);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setGenerating(false));
+  };
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -247,11 +232,17 @@ function DailySummarySection({ todayDate }: { todayDate: string }) {
     setGenerating(false);
   };
 
-  if (loading) return <div className="animate-pulse h-16 bg-stone-100 rounded-2xl" />;
+  if (loading) return (
+    <div className="space-y-2">
+      <div className="animate-pulse h-5 bg-teal-100/50 rounded-lg w-3/4" />
+      <div className="animate-pulse h-5 bg-teal-100/50 rounded-lg w-1/2" />
+      <div className="animate-pulse h-5 bg-teal-100/50 rounded-lg w-2/3" />
+    </div>
+  );
 
   const generatingIndicator = generating && (
-    <div className="flex items-center gap-2 text-xs text-stone-400 mb-2">
-      <span className="inline-block w-3 h-3 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+    <div className="flex items-center gap-2 text-sm text-teal-600 mb-3">
+      <span className="inline-block w-4 h-4 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
       正在生成日总结…
     </div>
   );
@@ -261,20 +252,82 @@ function DailySummarySection({ todayDate }: { todayDate: string }) {
       {summary ? (
         <div>
           {generatingIndicator}
-          <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">{summary}</p>
-          <Link href={`/daily/${todayDate}`} className="mt-2 inline-block text-xs font-bold text-teal-700 hover:underline">
-            查看完整日报 →
-          </Link>
+          <div className="prose prose-sm max-w-none">
+            {summary.split('\n').map((line, i) => {
+              const trimmed = line.trim();
+              if (!trimmed) return <br key={i} />;
+              // 检测是否是列表项
+              if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                return (
+                  <div key={i} className="flex gap-2.5 mb-2.5">
+                    <span className="mt-1.5 flex h-2 w-2 shrink-0 rounded-full bg-teal-500" />
+                    <span className="text-base font-semibold leading-relaxed text-stone-800">{trimmed.slice(2)}</span>
+                  </div>
+                );
+              }
+              // 检测是否是数字列表
+              if (/^\d+\.\s/.test(trimmed)) {
+                return (
+                  <div key={i} className="flex gap-2 mb-2.5">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700">
+                      {trimmed.match(/^(\d+)\./)?.[1]}
+                    </span>
+                    <span className="text-base font-semibold leading-relaxed text-stone-800">{trimmed.replace(/^\d+\.\s/, '')}</span>
+                  </div>
+                );
+              }
+              // 如果是标题行（以 ## 开头）
+              if (trimmed.startsWith('## ')) {
+                return (
+                  <h3 key={i} className="text-base font-black text-teal-800 mb-2 mt-3">{trimmed.replace(/^##\s*/, '')}</h3>
+                );
+              }
+              // 普通段落
+              return (
+                <p key={i} className="text-base font-semibold leading-relaxed text-stone-800 mb-2.5">{trimmed}</p>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <Link href={`/daily/${todayDate}`} className="inline-flex items-center gap-1 text-sm font-bold text-teal-700 hover:text-teal-800 transition-colors">
+              查看完整日报
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="text-xs font-bold text-stone-400 hover:text-teal-600 transition-colors disabled:opacity-50"
+            >
+              重新生成
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="text-center py-3">
-          <p className="text-sm text-stone-400">今天还没有日总结</p>
+        <div className="text-center py-6">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-100 mb-3">
+            <svg className="h-6 w-6 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+          </div>
+          <p className="text-sm text-stone-500 mb-3">今天还没有日总结</p>
           <button
             onClick={handleGenerate}
             disabled={generating}
-            className="mt-2 px-4 py-1.5 rounded-full bg-teal-700 text-white text-xs font-bold hover:bg-teal-800 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-teal-600 text-white text-sm font-bold shadow-md shadow-teal-200/50 hover:bg-teal-700 hover:shadow-lg hover:shadow-teal-200/50 transition-all disabled:opacity-50 active:scale-95"
           >
-            {generating ? '生成中…' : '🤖 生成日总结'}
+            {generating ? (
+              <>
+                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                生成中…
+              </>
+            ) : (
+              <>
+                <span>✨</span>
+                生成 AI 日总结
+              </>
+            )}
           </button>
         </div>
       )}
@@ -294,7 +347,8 @@ function AskSection({ todayDate }: { todayDate: string }) {
     if (!q) return;
     setLoading(true); setError(''); setAnswer('');
     try {
-      const res = await fetch('/api/ai/ask', {
+      // 使用多 Agent API
+      const res = await fetch('/api/ai/ask-multiagent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: q }),
@@ -328,8 +382,13 @@ function AskSection({ todayDate }: { todayDate: string }) {
       {loading && <p className="mt-2 text-xs text-stone-400 animate-pulse">查询知识库中…</p>}
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
       {answer && (
-        <div className="mt-2 p-3 rounded-2xl bg-white/60 border border-stone-200 text-sm text-stone-700 leading-relaxed max-h-40 overflow-y-auto">
-          {answer}
+        <div className="mt-2">
+          <div className="p-3 rounded-2xl bg-white/60 border border-stone-200 text-sm text-stone-700 leading-relaxed max-h-40 overflow-y-auto">
+            {answer}
+          </div>
+          <Link href="/ask" className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-teal-600 hover:text-teal-800 transition-colors">
+            去完整问答页面 →
+          </Link>
         </div>
       )}
     </div>
@@ -363,66 +422,22 @@ function OverviewSection({ tasks }: { tasks: Task[] }) {
   );
 }
 
-// ─── Activity Section ────────────────────────────────────────────────────────
-function ActivitySection({ data }: { data: ActivityData | null }) {
-  if (!data) return null;
-  const totalCommits = data.totalCommits;
-
-  return (
-    <div className="space-y-2">
-      <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">活动概览</h2>
-      <div className="grid grid-cols-2 gap-2">
-        <StatBadge label="今日提交" value={totalCommits} tone="text-teal-700" />
-        <StatBadge label="仓库数量" value={data.repos?.length || 0} tone="text-stone-800" />
-      </div>
-    </div>
-  );
-}
 
 // ─── Top Section ─────────────────────────────────────────────────────────────
 function TopSection({ todayDate }: { todayDate: string }) {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
-  const [activity, setActivity] = useState<ActivityData | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [undoneTasks, setUndoneTasks] = useState<Task[]>([]);
-  const [repos, setRepos] = useState<RepoStat[]>([]);
 
   useEffect(() => {
     Promise.all([
       fetch('/api/usage').then(r => r.json()).catch(() => null),
-      fetch('/api/activity/today').then(r => r.json()).catch(() => null),
       fetch('/api/tasks?limit=50').then(r => r.json()).catch(() => ({ tasks: [] })),
-      fetch('/api/repos').then(r => r.json()).catch(() => ({ repos: [] })),
-    ]).then(([u, a, t, r]) => {
+    ]).then(([u, t]) => {
       if (u && u.ok) setUsage(u);
-      if (a && a.ok) setActivity(a);
       const taskList: Task[] = t.tasks ?? [];
       setTasks(taskList);
-      setUndoneTasks(taskList.filter((tk: Task) => tk.status !== 'done'));
-      setRepos(r.repos ?? []);
     });
   }, [todayDate]);
-
-  const [togglingId, setTogglingId] = useState<string | null>(null);
-
-  const handleToggle = async (id: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'done' ? 'todo' : 'done';
-    setTogglingId(id);
-    try {
-      await fetch('/api/tasks', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status: newStatus }),
-      });
-      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
-      setUndoneTasks(prev =>
-        newStatus === 'done'
-          ? prev.filter(t => t.id !== id)
-          : [...prev, tasks.find(t => t.id === id)!]
-      );
-    } catch {}
-    setTogglingId(null);
-  };
 
   return (
     <section>
@@ -432,13 +447,21 @@ function TopSection({ todayDate }: { todayDate: string }) {
 
       <div className="grid gap-3 lg:grid-cols-3">
         {/* Daily Summary */}
-        <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900">AI 日总结</h2>
+        <div className="rounded-2xl border border-stone-900/10 bg-gradient-to-br from-teal-50/80 to-white p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-600 text-white shadow-md shadow-teal-200">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <h2 className="text-sm font-black tracking-[-0.02em] text-teal-800">AI 日总结</h2>
+          </div>
           <DailySummarySection todayDate={todayDate} />
         </div>
 
         {/* Today's Questions */}
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
+          <h2 className="text-sm font-black tracking-[-0.02em] text-stone-900 mb-3">💬 向知识库提问</h2>
           <AskSection todayDate={todayDate} />
         </div>
 
@@ -446,11 +469,6 @@ function TopSection({ todayDate }: { todayDate: string }) {
         <div className="rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
           <OverviewSection tasks={tasks} />
         </div>
-      </div>
-
-      {/* Activity */}
-      <div className="mt-4 rounded-2xl border border-stone-900/10 bg-white/55 p-4 shadow-sm">
-        <ActivitySection data={activity} />
       </div>
     </section>
   );

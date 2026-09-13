@@ -54,6 +54,25 @@ module.exports = {
       watch: false,
       max_memory_restart: '1G',
     },
-
+    {
+      name: 'media-crawler',
+      script: env.MEDIA_CRAWLER_SCRIPT || '/models-ssd/personal-workspace/tools/MediaCrawler/.venv/bin/python',
+      args: env.MEDIA_CRAWLER_ARGS || '-m api.main run --host 127.0.0.1 --port 8080',
+      cwd: env.MEDIA_CRAWLER_CWD || '/models-ssd/personal-workspace/tools/MediaCrawler',
+      interpreter: 'none',
+      env: {
+        MEDIA_CRAWLER_ENABLED: env.MEDIA_CRAWLER_ENABLED || 'true',
+        MEDIA_CRAWLER_BASE_URL: env.MEDIA_CRAWLER_BASE_URL || 'http://127.0.0.1:8080',
+        MEDIA_CRAWLER_HOST: env.MEDIA_CRAWLER_HOST || '127.0.0.1',
+        MEDIA_CRAWLER_PORT: env.MEDIA_CRAWLER_PORT || '8080',
+        PATH: env.PATH || '/home/sz/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        DISPLAY: ':1',
+      },
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: 5000,
+      restart_delay: 2000,
+      watch: false,
+    },
   ],
 };

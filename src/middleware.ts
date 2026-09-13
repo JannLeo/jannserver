@@ -17,6 +17,8 @@ export async function middleware(req: NextRequest) {
     '/api/auth/login', '/api/auth/logout', '/api/auth/me',
     '/api/news', '/api/trending', '/api/usage',
     '/api/tasks/delegations',
+    // Herdr agent control (internal tool)
+    '/api/herdr/',
     '/_next/', '/favicon.ico',
     // PWA assets
     '/manifest.json', '/sw.js',

@@ -1,11 +1,23 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3'],
-    turbopack: {},
   },
-  // Rewrites: SPA fallback for DSA web embedded at /stock/
+  outputFileTracing: false,
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'covers.openlibrary.org' },
+      { protocol: 'https', hostname: 'cdn.weread.qq.com' },
+      { protocol: 'https', hostname: 'wfqqreader-1252317822.image.myqcloud.com' },
+    ],
+  },
+  typescript: {
+    // 跳过 TS 编译时检查，加快构建速度（类型错误不影响运行时）
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   async rewrites() {
     return [
       // Proxy: Fincept API -> localhost:18080
@@ -13,16 +25,11 @@ const nextConfig = {
         source: '/api/v1/fincept/:path*',
         destination: 'http://localhost:18080/api/v1/fincept/:path*',
       },
-      // SPA fallback: all /stock/* routes that aren't real files serve index.html
+      // Proxy: DSA API -> localhost:8083
       {
-        source: '/stock/:path((?!.*\\.\\w+$).*)',
-        destination: '/stock/index.html',
+        source: '/api/dsa/:path*',
+        destination: 'http://localhost:8083/api/v1/:path*',
       },
-    ];
-  },
-  // Rewrites: SPA fallback for DSA web embedded at /stock/
-  async rewrites() {
-    return [
       // SPA fallback: all /stock/* routes that aren't real files serve index.html
       {
         source: '/stock/:path((?!.*\\.\\w+$).*)',

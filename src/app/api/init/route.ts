@@ -5,6 +5,17 @@ import { hashSync } from 'bcryptjs';
 import { getIronSession } from 'iron-session';
 import { sessionOptions } from '@/lib/auth';
 
+// GET /api/init - 返回初始化状态
+export async function GET(req: NextRequest) {
+  initDb();
+  const existing = db.select().from(users).all();
+  return NextResponse.json({
+    initialized: existing.length > 0,
+    userCount: existing.length,
+  });
+}
+
+// POST /api/init - 执行初始化
 export async function POST(req: NextRequest) {
   // 检查 INIT_TOKEN
   const initToken = req.headers.get('x-init-token');

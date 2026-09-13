@@ -79,6 +79,7 @@ const navItems: [string, string, string, string][] = [
   ['/novel', '✍️', '小说', 'AI 小说创作'],
   ['/news', '📰', '新闻', '全球新闻聚合'],
   ['/trending', '🔥', '趋势', 'GitHub Trending'],
+  ['/herdr', '🤖', 'Herdr Agent', 'Agent 控制台'],
   ['/reading', '📘', '读书计划', '阅读·笔记·进度'],
 ];
 
