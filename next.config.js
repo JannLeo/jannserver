@@ -1,9 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The production Docker image copies .next/standalone, so make Next emit it.
+  output: 'standalone',
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3'],
   },
-  outputFileTracing: false,
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'covers.openlibrary.org' },
