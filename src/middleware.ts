@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIronSession } from 'iron-session';
+import { isAllowedHostname } from '@/lib/host-validation';
 
 const EXACT_PUBLIC_PATHS = new Set([
   '/login',
@@ -73,8 +74,21 @@ function machineAuthResponse(req: NextRequest, pathname: string): NextResponse |
   return null;
 }
 
+function invalidHost(pathname: string): NextResponse {
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: 'Unrecognized Host header' }, { status: 421 });
+  }
+  return new NextResponse('Unrecognized Host header', { status: 421 });
+}
+
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, hostname } = req.nextUrl;
+
+  // Reject Host-header confusion before redirects or authentication. Exact hosts
+  // are the default; subdomains require an explicit `*.example.com` pattern.
+  if (process.env.NODE_ENV === 'production' && !isAllowedHostname(hostname)) {
+    return invalidHost(pathname);
+  }
 
   if (isPublicPath(pathname)) {
     const response = NextResponse.next();
@@ -129,18 +143,10 @@ export async function middleware(req: NextRequest) {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const origin = req.headers.get('origin');
     if (origin) {
-      const allowedHosts = (process.env.ALLOWED_HOSTS || 'localhost,127.0.0.1')
-        .split(',')
-        .map((host) => host.trim().toLowerCase())
-        .filter(Boolean);
-
       try {
-        const originUrl = new URL(origin);
-        const hostname = originUrl.hostname.toLowerCase();
-        const allowed = allowedHosts.some(
-          (host) => hostname === host || hostname.endsWith(`.${host}`),
-        );
-        if (!allowed) return new Response('Forbidden', { status: 403 });
+        if (!isAllowedHostname(new URL(origin).hostname)) {
+          return new Response('Forbidden', { status: 403 });
+        }
       } catch {
         return new Response('Forbidden', { status: 403 });
       }
