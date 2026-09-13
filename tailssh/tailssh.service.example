@@ -1,0 +1,23 @@
+# Copy this file to /etc/systemd/system/tailssh.service and replace YOUR_USER
+# and /opt/jannserver with the account/path used on the target machine.
+
+[Unit]
+Description=TailSSH Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+Environment=TAILSSH_VENV=/opt/jannserver/.venv_tailssh
+Environment=TAILSSH_CONFIG=/opt/jannserver/tailssh/config.json
+Environment=TAILSSH_HOST=127.0.0.1
+Environment=TAILSSH_PORT=9222
+ExecStart=/usr/bin/env bash /opt/jannserver/tailssh/run.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
